@@ -4,9 +4,13 @@ version := "0.1"
 
 scalaVersion := "2.12.4"
 
+val akkaVersion = "2.5.11"
+val akkaHttpVersion = "10.1.0"
+
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-actor" % "2.5.11",
-  "com.typesafe.akka" %% "akka-testkit" % "2.5.11" % Test,
-  "com.typesafe.akka" %% "akka-http" % "10.0.11",
-  "com.typesafe.akka" %% "akka-http-testkit" % "10.0.11" % Test
+  "org.bouncycastle" % "bcprov-ext-jdk15on" % "1.59",
+  "com.typesafe.akka" %% "akka-actor" % akkaVersion,
+  "com.typesafe.akka" %% "akka-http" % akkaHttpVersion,
+  "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test,
+  "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpVersion % Test
 )
