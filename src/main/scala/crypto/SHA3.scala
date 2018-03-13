@@ -10,10 +10,7 @@ object SHA3 {
   }
 
   def calculate(tx: Transaction): ByteString = {
-    val amount = ByteString(tx.amount)
-    val recipient = tx.recipient.asBytes
-    val signature = calculate(tx.signature)
-    calculate(Seq(amount, recipient, signature))
+    calculate(Seq(ByteString(tx.amount), tx.recipient.asBytes, ByteString(tx.txNumber), calculate(tx.signature)))
   }
 
   def calculate(txs: List[Transaction]): ByteString = {

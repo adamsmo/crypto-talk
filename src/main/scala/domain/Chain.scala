@@ -6,6 +6,7 @@ import crypto.SHA3
 
 case class Transaction(amount: BigInt,
                        recipient: Address,
+                       txNumber:BigInt,
                        signature: Signature)
 
 case class Block(parentHash: ByteString,
@@ -23,6 +24,12 @@ case class Block(parentHash: ByteString,
 
 case class Signature(r: BigInt, s: BigInt, v: BigInt)
 
-case class Address() {
-  def asBytes: ByteString = ByteString.empty
+case class PubKey(x: BigInt, y: BigInt)
+
+case class PrvKey(n: BigInt)
+
+case class Address(key: PubKey) {
+  lazy val asBytes: ByteString = SHA3.calculate(Seq(ByteString(key.x), ByteString(key.y)))
+
+  override def toString: String = asBytes.utf8String
 }
