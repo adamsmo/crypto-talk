@@ -1,17 +1,20 @@
 package actors
 
-import actors.CoinNode.{ MineBlock, State }
+import actors.CoinNode._
 import akka.actor.{ Actor, ActorLogging, Stash }
-import akka.util.ByteString
+import akka.pattern.ask
+import akka.util.{ ByteString, Timeout }
 import domain._
 import org.bouncycastle.util.encoders.Hex
 
 import scala.concurrent.duration._
 import scala.concurrent.{ ExecutionContext, Future }
+import scala.util.{ Failure, Success }
 
 class CoinNode extends Actor with ActorLogging with Stash {
 
   implicit val ctx: ExecutionContext = context.system.dispatcher
+  implicit val askTimeOut: Timeout = 5.seconds
 
   override def preStart(): Unit = {
     context.system.scheduler.schedule(
@@ -36,18 +39,102 @@ class CoinNode extends Actor with ActorLogging with Stash {
         }
       }
 
-    case b: Block =>
-      //check if parent is in chain
-      executeBlock(b, state) match {
-        case Some(newState) =>
-          context.become(standardOperation(newState))
-        case None =>
-          log.info(s"rejecting block $b")
+    case newBlock: Block =>
+      getParent(newBlock, state) match {
+        case Some(parent) if state.latestBlock().contains(parent) =>
+          executeBlock(newBlock, state) match {
+            case Some(newState) =>
+              context.become(standardOperation(newState))
+            case None =>
+              log.info(s"rejecting block $newBlock")
+          }
+
+        case Some(parent) if state.latestBlock().exists(latest => latest.totalDifficulty < newBlock.totalDifficulty) =>
+          executeBlock(newBlock, state.rollBack(parent.hash)) match {
+            case Some(newState) =>
+              context.become(standardOperation(newState))
+            case None =>
+              log.info(s"rejecting block $newBlock")
+          }
+
+        case Some(_) =>
+          log.info(s"discarding block $newBlock as it has lower total difficulty than current latest block")
+
+        case None if state.latestBlock().exists(_.totalDifficulty < newBlock.totalDifficulty) =>
+          context.become(resolvingFork(state, List(newBlock)))
+
+          (sender() ? GetBlock(newBlock.parentHash)).mapTo[Block].onComplete {
+            case Success(response) =>
+              self ! response
+            case Failure(_) =>
+              self ! FailToResolveFork
+          }
       }
+
   }
 
-  private def resolvingBranch(state: State, branch: List[Block]): Receive = {
+  def executingBranch(oldState: State, currentState: State, reverseBranch: List[Block]): Receive = {
+    case ExecuteBranch =>
+      reverseBranch match {
+        case block :: rest =>
+          executeBlock(block, currentState) match {
+            case Some(newState) =>
+              context.become(executingBranch(oldState, newState, rest))
+              self ! ExecuteBranch
+            case None =>
+              self ! FailToResolveFork
+          }
+        case Nil =>
+          self ! ForkResolved
+      }
+    case ForkResolved =>
+      unstashAll()
+      context.become(standardOperation(currentState))
+      log.info(s"fail to resolve fork rolling back to normal operation")
+
+    case FailToResolveFork =>
+      unstashAll()
+      context.become(standardOperation(oldState))
+      log.info(s"fail to resolve fork rolling back to normal operation")
+
     case _ =>
+      stash()
+  }
+
+  private def resolvingFork(state: State, branch: List[Block]): Receive = {
+    //process only if block is part of the branch
+    case newBlock: Block if branch.headOption.exists(_.parentHash == newBlock.hash) =>
+      getParent(newBlock, state) match {
+        case Some(_) if isValid(branch :+ newBlock) =>
+          context.become(executingBranch(state, state, (branch :+ newBlock).reverse))
+          self ! ExecuteBranch
+
+        case None if isValid(branch :+ newBlock) =>
+          context.become(resolvingFork(state, branch :+ newBlock))
+
+          (sender() ? GetBlock(newBlock.parentHash)).mapTo[Block].onComplete {
+            case Success(response) =>
+              self ! response
+            case Failure(_) =>
+              self ! FailToResolveFork
+          }
+        case _ =>
+          self ! FailToResolveFork
+      }
+
+    case FailToResolveFork =>
+      unstashAll()
+      context.become(standardOperation(state))
+      log.info(s"fail to resolve fork rolling back to normal operation")
+
+    case _ =>
+      stash()
+  }
+
+  private def getParent(block: Block, state: State): Option[Block] = {
+    state.chain
+      .find { case (chainBlock, _) => chainBlock.hash == block.parentHash }
+      .map { case (chainBlock, _) => chainBlock }
   }
 
   private def executeBlock(block: Block, state: State): Option[State] = {
@@ -59,6 +146,11 @@ class CoinNode extends Actor with ActorLogging with Stash {
     } else {
       None
     }
+  }
+
+  private def isValid(branch: List[Block]): Boolean = {
+    //check that td adds up
+    false
   }
 
   private def isValid(block: Block, state: State): Boolean = {
@@ -116,8 +208,32 @@ case object CoinNode {
   case class State(
       chain: List[(Block, Map[Address, Account])],
       txPool: List[Transaction],
-      minerAddress: Option[Address])
+      minerAddress: Option[Address]) {
+
+    def rollBack(hash: ByteString): State = {
+      val (blocksToDiscard, commonPrefix) = chain.span { case (block, _) => block.hash != hash }
+      val transactionToAdd = blocksToDiscard.flatMap { case (block, _) => block.transactions }
+
+      copy(
+        chain = commonPrefix,
+        txPool = txPool ++ transactionToAdd)
+    }
+
+    def latestBlock(): Option[Block] = {
+      chain.headOption.map { case (block, _) => block }
+    }
+  }
 
   case object MineBlock
+
+  case object GetLatestBlock
+
+  case class GetBlock(query: ByteString)
+
+  case object ForkResolved
+
+  case object FailToResolveFork
+
+  case object ExecuteBranch
 
 }
