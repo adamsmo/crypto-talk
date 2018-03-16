@@ -71,6 +71,8 @@ class CoinNode extends Actor with ActorLogging with Stash {
           }
       }
 
+    case GetState =>
+      sender() ! state
   }
 
   def executingBranch(oldState: State, currentState: State, reverseBranch: List[Block]): Receive = {
@@ -139,18 +141,20 @@ class CoinNode extends Actor with ActorLogging with Stash {
 
   private def executeBlock(block: Block, state: State): Option[State] = {
     if (isValid(block, state)) {
-      //make transfers to accounts + update tx numbers
-      //add tx fee to miner acc
-      //add mining reward
-      ???
+      val accounts = state.chain.headOption.map { case (_, acc) => acc }
+      block.transactions.foldLeft(accounts) {
+        case (currentAccounts, tx) =>
+          currentAccounts.flatMap(s => executeTransaction(tx, s))
+      }.map { acc =>
+        val miner = acc.getOrElse(block.miner, Account.empty)
+        val txFees = block.transactions.map(_.txFee).sum
+        val acc1 = acc + (block.miner -> miner.add(txFees + CoinNode.minerReward))
+
+        state.copy(chain = (block, acc1) :: state.chain, txPool = state.txPool.diff(block.transactions))
+      }
     } else {
       None
     }
-  }
-
-  private def isValid(branch: List[Block]): Boolean = {
-    //check that td adds up
-    false
   }
 
   private def isValid(block: Block, state: State): Boolean = {
@@ -159,6 +163,15 @@ class CoinNode extends Actor with ActorLogging with Stash {
     //check tx limit
     //check that txs senders are in state and have enough balance
     true
+  }
+
+  private def isValid(branch: List[Block]): Boolean = branch match {
+    case b1 :: b2 :: rest =>
+      b1.totalDifficulty - b1.blockDifficulty == b2.totalDifficulty && b1.parentHash == b2.hash && isValid(rest)
+    case _ :: Nil =>
+      true
+    case Nil =>
+      true
   }
 
   private def prepareBlock(state: State): Option[UnminedBlock] = {
@@ -186,6 +199,19 @@ class CoinNode extends Actor with ActorLogging with Stash {
       }
       .sortBy(tx => tx.txFee)
       .take(CoinNode.maxTransactionsPerBlock)
+  }
+
+  private def executeTransaction(tx: Transaction, state: Map[Address, Account]): Option[Map[Address, Account]] = {
+    for {
+      sender <- tx.sender
+      recipientAcc <- state.get(tx.recipient).orElse(Some(Account.empty))
+      senderAcc <- state.get(sender) if senderAcc.balance >= tx.txFee + tx.amount && senderAcc.txNumber == tx.txNumber
+    } yield {
+
+      val s1 = state + (tx.recipient -> recipientAcc.add(tx.amount))
+      val s2 = state + (sender -> senderAcc.subtract(tx.amount + tx.txFee))
+      s2
+    }
   }
 }
 
@@ -236,4 +262,6 @@ case object CoinNode {
 
   case object ExecuteBranch
 
+  //for testing
+  case object GetState
 }

@@ -1,7 +1,10 @@
 package domain
 
+import java.awt.print.Book
+
+import actors.CoinNode
 import akka.util.ByteString
-import crypto.SHA3
+import crypto.{ ECDSA, SHA3 }
 import org.bouncycastle.util.encoders.Hex
 
 case class Transaction(
@@ -9,9 +12,22 @@ case class Transaction(
     txFee: BigInt,
     recipient: Address,
     txNumber: BigInt,
-    signature: Signature)
+    signature: Signature) {
 
-case class Account(txNumber: BigInt, balance: BigInt)
+  lazy val sender: Option[Address] = {
+    ECDSA.verify(signature, SHA3.calculate(this))
+  }
+
+}
+
+case class Account(txNumber: BigInt, balance: BigInt) {
+  def subtract(amount: BigInt) = copy(balance - amount)
+  def add(amount: BigInt) = copy(balance + amount)
+}
+
+object Account {
+  def empty = Account(0, 0)
+}
 
 case class UnminedBlock(
     blockNumber: BigInt,
