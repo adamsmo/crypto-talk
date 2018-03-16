@@ -35,11 +35,11 @@ class CoinNode extends Actor with ActorLogging with Stash {
       Future {
         prepareBlock(state).foreach { b =>
           val (pow, nonce) = MinerPoW.mineBlock(b.hash, CoinNode.difficulty)
-          self ! Block(b, pow, nonce)
+          self ! MinedBlock(b, pow, nonce)
         }
       }
 
-    case newBlock: Block =>
+    case newBlock: MinedBlock =>
       getParent(newBlock, state) match {
         case Some(parent) if state.latestBlock().contains(parent) =>
           executeBlock(newBlock, state) match {
@@ -63,7 +63,7 @@ class CoinNode extends Actor with ActorLogging with Stash {
         case None if state.latestBlock().exists(_.totalDifficulty < newBlock.totalDifficulty) =>
           context.become(resolvingFork(state, List(newBlock)))
 
-          (sender() ? GetBlock(newBlock.parentHash)).mapTo[Block].onComplete {
+          (sender() ? GetBlock(newBlock.parentHash)).mapTo[MinedBlock].onComplete {
             case Success(response) =>
               self ! response
             case Failure(_) =>
@@ -71,11 +71,23 @@ class CoinNode extends Actor with ActorLogging with Stash {
           }
       }
 
+    case GetLatestBlock =>
+      state.chain.headOption.foreach { case (block, _) => sender() ! block }
+
+    case GetTransactions =>
+      sender() ! state.txPool
+
+    case tx: Transaction =>
+      context.become(standardOperation(state.copy(txPool = (tx :: state.txPool).distinct)))
+
+    case txs: List[Transaction] =>
+      context.become(standardOperation(state.copy(txPool = (state.txPool ++ txs).distinct)))
+
     case GetState =>
       sender() ! state
   }
 
-  def executingBranch(oldState: State, currentState: State, reverseBranch: List[Block]): Receive = {
+  def executingBranch(oldState: State, currentState: State, reverseBranch: List[MinedBlock]): Receive = {
     case ExecuteBranch =>
       reverseBranch match {
         case block :: rest =>
@@ -103,9 +115,9 @@ class CoinNode extends Actor with ActorLogging with Stash {
       stash()
   }
 
-  private def resolvingFork(state: State, branch: List[Block]): Receive = {
+  private def resolvingFork(state: State, branch: List[MinedBlock]): Receive = {
     //process only if block is part of the branch
-    case newBlock: Block if branch.headOption.exists(_.parentHash == newBlock.hash) =>
+    case newBlock: MinedBlock if branch.headOption.exists(_.parentHash == newBlock.hash) =>
       getParent(newBlock, state) match {
         case Some(_) if isValid(branch :+ newBlock) =>
           context.become(executingBranch(state, state, (branch :+ newBlock).reverse))
@@ -114,7 +126,7 @@ class CoinNode extends Actor with ActorLogging with Stash {
         case None if isValid(branch :+ newBlock) =>
           context.become(resolvingFork(state, branch :+ newBlock))
 
-          (sender() ? GetBlock(newBlock.parentHash)).mapTo[Block].onComplete {
+          (sender() ? GetBlock(newBlock.parentHash)).mapTo[MinedBlock].onComplete {
             case Success(response) =>
               self ! response
             case Failure(_) =>
@@ -133,13 +145,13 @@ class CoinNode extends Actor with ActorLogging with Stash {
       stash()
   }
 
-  private def getParent(block: Block, state: State): Option[Block] = {
+  private def getParent(block: MinedBlock, state: State): Option[MinedBlock] = {
     state.chain
       .find { case (chainBlock, _) => chainBlock.hash == block.parentHash }
       .map { case (chainBlock, _) => chainBlock }
   }
 
-  private def executeBlock(block: Block, state: State): Option[State] = {
+  private def executeBlock(block: MinedBlock, state: State): Option[State] = {
     if (isValid(block, state)) {
       val initialAccounts = state.chain.headOption.map { case (_, acc) => acc }
 
@@ -164,15 +176,16 @@ class CoinNode extends Actor with ActorLogging with Stash {
     }
   }
 
-  private def isValid(block: Block, state: State): Boolean = {
-    //check POW
-    //check difficulty
-    //check tx limit
-    //check that txs senders are in state and have enough balance
-    true
+  private def isValid(block: MinedBlock, state: State): Boolean = {
+    val diffValid = state.chain.headOption.exists {
+      case (latestBlock, _) =>
+        latestBlock.totalDifficulty + block.blockDifficulty == block.totalDifficulty
+    }
+    val txLimit = block.transactions.size <= CoinNode.maxTransactionsPerBlock
+    MinerPoW.isValidPoW(block) && diffValid && txLimit
   }
 
-  private def isValid(branch: List[Block]): Boolean = branch match {
+  private def isValid(branch: List[MinedBlock]): Boolean = branch match {
     case b1 :: b2 :: rest =>
       b1.totalDifficulty - b1.blockDifficulty == b2.totalDifficulty && b1.parentHash == b2.hash && isValid(rest)
     case _ :: Nil =>
@@ -182,6 +195,7 @@ class CoinNode extends Actor with ActorLogging with Stash {
   }
 
   private def prepareBlock(state: State): Option[UnminedBlock] = {
+    //todo execute transactions to filter out failing ones
     state match {
       case State((parent, accounts) :: chain, txPool, Some(miner)) =>
         Some(UnminedBlock(
@@ -227,7 +241,7 @@ case object CoinNode {
   val maxTransactionsPerBlock = 5
   val minerReward = 5000000
 
-  val genesisBlock = Block(
+  val genesisBlock = MinedBlock(
     blockNumber = 0,
     parentHash = ByteString(Hex.decode("00" * 32)),
     transactions = Nil,
@@ -238,7 +252,7 @@ case object CoinNode {
     totalDifficulty = 0)
 
   case class State(
-      chain: List[(Block, Map[Address, Account])],
+      chain: List[(MinedBlock, Map[Address, Account])],
       txPool: List[Transaction],
       minerAddress: Option[Address]) {
 
@@ -251,7 +265,7 @@ case object CoinNode {
         txPool = txPool ++ transactionToAdd)
     }
 
-    def latestBlock(): Option[Block] = {
+    def latestBlock(): Option[MinedBlock] = {
       chain.headOption.map { case (block, _) => block }
     }
   }
@@ -267,6 +281,8 @@ case object CoinNode {
   case object FailToResolveFork
 
   case object ExecuteBranch
+
+  case object GetTransactions
 
   //for testing
   case object GetState

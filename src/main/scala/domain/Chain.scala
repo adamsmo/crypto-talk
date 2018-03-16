@@ -29,27 +29,27 @@ object Account {
   def empty = Account(0, 0)
 }
 
+trait Block {
+  val blockNumber: BigInt
+  val parentHash: ByteString
+  val transactions: List[Transaction]
+  val miner: Address
+  val blockDifficulty: BigInt
+  val totalDifficulty: BigInt
+}
+
 case class UnminedBlock(
     blockNumber: BigInt,
     parentHash: ByteString,
     transactions: List[Transaction],
     miner: Address,
     blockDifficulty: BigInt,
-    totalDifficulty: BigInt) {
+    totalDifficulty: BigInt) extends Block {
 
-  lazy val hash: ByteString = {
-    val txsHash = SHA3.calculate(transactions)
-    SHA3.calculate(Seq(
-      ByteString(blockNumber),
-      parentHash,
-      txsHash,
-      miner.asBytes,
-      ByteString(blockDifficulty),
-      ByteString(totalDifficulty)))
-  }
+  lazy val hash = Block.hashForMining(this)
 }
 
-case class Block(
+case class MinedBlock(
     blockNumber: BigInt,
     parentHash: ByteString,
     transactions: List[Transaction],
@@ -57,7 +57,7 @@ case class Block(
     blockDifficulty: BigInt,
     totalDifficulty: BigInt,
     nonce: ByteString,
-    powHash: ByteString) {
+    powHash: ByteString) extends Block {
 
   lazy val hash: ByteString = {
     val txsHash = SHA3.calculate(transactions)
@@ -74,9 +74,9 @@ case class Block(
 
 }
 
-case object Block {
-  def apply(b: UnminedBlock, powHash: ByteString, nonce: ByteString): Block =
-    Block(
+object MinedBlock {
+  def apply(b: UnminedBlock, powHash: ByteString, nonce: ByteString): MinedBlock =
+    MinedBlock(
       b.blockNumber,
       b.parentHash,
       b.transactions,
@@ -85,6 +85,19 @@ case object Block {
       b.totalDifficulty,
       nonce,
       powHash)
+}
+
+object Block {
+  def hashForMining(block: Block): ByteString = {
+    val txsHash = SHA3.calculate(block.transactions)
+    SHA3.calculate(Seq(
+      ByteString(block.blockNumber),
+      block.parentHash,
+      txsHash,
+      block.miner.asBytes,
+      ByteString(block.blockDifficulty),
+      ByteString(block.totalDifficulty)))
+  }
 }
 
 //remark signature contans V that allow to recover public key from r and s
