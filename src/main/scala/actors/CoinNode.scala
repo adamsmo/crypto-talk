@@ -141,17 +141,24 @@ class CoinNode extends Actor with ActorLogging with Stash {
 
   private def executeBlock(block: Block, state: State): Option[State] = {
     if (isValid(block, state)) {
-      val accounts = state.chain.headOption.map { case (_, acc) => acc }
-      block.transactions.foldLeft(accounts) {
-        case (currentAccounts, tx) =>
-          currentAccounts.flatMap(s => executeTransaction(tx, s))
-      }.map { acc =>
-        val miner = acc.getOrElse(block.miner, Account.empty)
-        val txFees = block.transactions.map(_.txFee).sum
-        val acc1 = acc + (block.miner -> miner.add(txFees + CoinNode.minerReward))
+      val initialAccounts = state.chain.headOption.map { case (_, acc) => acc }
 
-        state.copy(chain = (block, acc1) :: state.chain, txPool = state.txPool.diff(block.transactions))
-      }
+      block.transactions
+        //execute all transactions
+        .foldLeft(initialAccounts) {
+          case (accounts, tx) =>
+            accounts.flatMap(executeTransaction(tx, _))
+        }
+        //pay miner
+        .map { accounts =>
+          val minerAcc = accounts.getOrElse(block.miner, Account.empty)
+          val txFees = block.transactions.map(_.txFee).sum
+          accounts.updated(block.miner, minerAcc.add(txFees + CoinNode.minerReward))
+        }
+        //construct new state
+        .map { accounts =>
+          state.copy(chain = (block, accounts) :: state.chain, txPool = state.txPool.diff(block.transactions))
+        }
     } else {
       None
     }
@@ -207,10 +214,9 @@ class CoinNode extends Actor with ActorLogging with Stash {
       recipientAcc <- state.get(tx.recipient).orElse(Some(Account.empty))
       senderAcc <- state.get(sender) if senderAcc.balance >= tx.txFee + tx.amount && senderAcc.txNumber == tx.txNumber
     } yield {
-
-      val s1 = state + (tx.recipient -> recipientAcc.add(tx.amount))
-      val s2 = state + (sender -> senderAcc.subtract(tx.amount + tx.txFee))
-      s2
+      state
+        .updated(tx.recipient, recipientAcc.add(tx.amount))
+        .updated(sender, senderAcc.subtract(tx.amount + tx.txFee))
     }
   }
 }
