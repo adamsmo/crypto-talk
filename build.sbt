@@ -23,3 +23,6 @@ scalariformPreferences := scalariformPreferences.value
   .setPreference(AlignSingleLineCaseStatements, true)
   .setPreference(DoubleIndentConstructorArguments, true)
   .setPreference(DanglingCloseParenthesis, Prevent)
+
+//hack for sbt to not crash when watching for file changes
+watchService := (() => new sbt.io.PollingWatchService(pollInterval.value))
