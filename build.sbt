@@ -1,3 +1,5 @@
+import scalariform.formatter.preferences._
+
 name := "demo-coin"
 
 version := "0.1"
@@ -16,3 +18,8 @@ libraryDependencies ++= Seq(
   "org.scalatest" %% "scalatest" % "3.0.5" % Test,
   "org.scalacheck" %% "scalacheck" % "1.13.4" % Test
 )
+
+scalariformPreferences := scalariformPreferences.value
+  .setPreference(AlignSingleLineCaseStatements, true)
+  .setPreference(DoubleIndentConstructorArguments, true)
+  .setPreference(DanglingCloseParenthesis, Prevent)

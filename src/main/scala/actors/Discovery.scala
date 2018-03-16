@@ -1,7 +1,7 @@
 package actors
 
-import actors.Discovery.{GetAll, RegisterNew, RegisteredNodes}
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import actors.Discovery.{ GetAll, RegisterNew, RegisteredNodes }
+import akka.actor.{ Actor, ActorLogging, ActorRef, Props }
 
 class Discovery extends Actor with ActorLogging {
 

@@ -1,7 +1,7 @@
 package crypto
 
 import akka.util.ByteString
-import domain.{Signature, Transaction}
+import domain.{ Signature, Transaction }
 import org.bouncycastle.crypto.digests.SHA3Digest
 
 object SHA3 {
@@ -10,7 +10,7 @@ object SHA3 {
   }
 
   def calculate(tx: Transaction): ByteString = {
-    calculate(Seq(ByteString(tx.amount), tx.recipient.asBytes, ByteString(tx.txNumber), calculate(tx.signature)))
+    calculate(Seq(ByteString(tx.amount), ByteString(tx.txFee), tx.recipient.asBytes, ByteString(tx.txNumber), calculate(tx.signature)))
   }
 
   def calculate(txs: List[Transaction]): ByteString = {

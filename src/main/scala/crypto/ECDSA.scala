@@ -4,9 +4,9 @@ import java.math.BigInteger
 import java.security.SecureRandom
 
 import akka.util.ByteString
-import domain.{Address, PrvKey, PubKey, Signature}
+import domain.{ Address, PrvKey, PubKey, Signature }
 import org.bouncycastle.crypto.generators.ECKeyPairGenerator
-import org.bouncycastle.crypto.params.{ECDomainParameters, ECKeyGenerationParameters, ECPrivateKeyParameters, ECPublicKeyParameters}
+import org.bouncycastle.crypto.params.{ ECDomainParameters, ECKeyGenerationParameters, ECPrivateKeyParameters, ECPublicKeyParameters }
 import org.bouncycastle.crypto.signers.ECDSASigner
 import org.bouncycastle.jce.ECNamedCurveTable
 import org.bouncycastle.math.ec.ECFieldElement
