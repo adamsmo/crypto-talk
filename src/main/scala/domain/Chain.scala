@@ -1,8 +1,5 @@
 package domain
 
-import java.awt.print.Book
-
-import actors.CoinNode
 import akka.util.ByteString
 import crypto.{ ECDSA, SHA3 }
 import org.bouncycastle.util.encoders.Hex
