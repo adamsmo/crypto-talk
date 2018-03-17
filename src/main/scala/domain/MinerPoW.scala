@@ -15,13 +15,11 @@ object MinerPoW {
    */
   def mineBlock(hashForMining: ByteString, difficulty: Long): (ByteString, ByteString) = {
     val nonce = ByteString(Array.fill(20)(Random.nextInt(256).toByte))
-
     val powHash = SHA3.calculate(Seq(hashForMining, nonce))
-    val formatted = format(powHash)
 
     val expectedPrefix = "0" * difficulty.toInt
 
-    if (formatted.startsWith(expectedPrefix)) {
+    if (format(powHash).startsWith(expectedPrefix)) {
       (powHash, nonce)
     } else {
       mineBlock(hashForMining, difficulty)
@@ -31,8 +29,10 @@ object MinerPoW {
   def isValidPoW(block: MinedBlock): Boolean = {
     val expectedPrefix = "0" * block.blockDifficulty.toInt
 
-    SHA3.calculate(Seq(Block.hashForMining(block), block.nonce)) == block.powHash &&
-      format(block.powHash).startsWith(expectedPrefix)
+    val correctHash = SHA3.calculate(Seq(Block.hashForMining(block), block.nonce)) == block.powHash
+    val difficulty = format(block.powHash).startsWith(expectedPrefix)
+
+    correctHash && difficulty
   }
 
   /**

@@ -1,7 +1,7 @@
 package actors
 
 import actors.CoinNode._
-import akka.actor.{ Actor, ActorLogging, Stash }
+import akka.actor.{ Actor, ActorLogging, ActorRef, Props, Stash }
 import akka.pattern.ask
 import akka.util.{ ByteString, Timeout }
 import domain._
@@ -11,30 +11,32 @@ import scala.concurrent.duration._
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.{ Failure, Success }
 
-class CoinNode extends Actor with ActorLogging with Stash {
+class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
 
   implicit val ctx: ExecutionContext = context.system.dispatcher
   implicit val askTimeOut: Timeout = 5.seconds
 
   override def preStart(): Unit = {
-    context.system.scheduler.schedule(
-      initialDelay = 5.seconds,
-      interval = 5.seconds,
-      receiver = self,
-      message = MineBlock)
+    if (nodeParams.isMining) {
+      context.system.scheduler.schedule(
+        initialDelay = 0.seconds,
+        interval = nodeParams.miningInterval,
+        receiver = self,
+        message = MineBlock)
+    }
   }
 
   override def receive: Receive = standardOperation(
     State(
       chain = List((CoinNode.genesisBlock, Map.empty)),
       txPool = List.empty,
-      minerAddress = None))
+      minerAddress = Some(nodeParams.miner)))
 
   private def standardOperation(state: State): Receive = {
     case MineBlock =>
       Future {
         prepareBlock(state).foreach { b =>
-          val (pow, nonce) = MinerPoW.mineBlock(b.hash, CoinNode.difficulty)
+          val (pow, nonce) = MinerPoW.mineBlock(b.hash, nodeParams.miningTargetDifficulty)
           self ! MinedBlock(b, pow, nonce)
         }
       }
@@ -45,6 +47,7 @@ class CoinNode extends Actor with ActorLogging with Stash {
           executeBlock(newBlock, state) match {
             case Some(newState) =>
               context.become(standardOperation(newState))
+              sendToOthers(newBlock)
             case None =>
               log.info(s"rejecting block $newBlock")
           }
@@ -53,6 +56,7 @@ class CoinNode extends Actor with ActorLogging with Stash {
           executeBlock(newBlock, state.rollBack(parent.hash)) match {
             case Some(newState) =>
               context.become(standardOperation(newState))
+              sendToOthers(newBlock)
             case None =>
               log.info(s"rejecting block $newBlock")
           }
@@ -75,12 +79,12 @@ class CoinNode extends Actor with ActorLogging with Stash {
       state.chain.headOption.foreach { case (block, _) => sender() ! block }
 
     case GetTransactions =>
-      sender() ! state.txPool
+      sender() ! Transactions(state.txPool)
 
-    case tx: Transaction =>
+    case tx: Transaction if tx.sender.nonEmpty =>
       context.become(standardOperation(state.copy(txPool = (tx :: state.txPool).distinct)))
 
-    case txs: List[Transaction] =>
+    case Transactions(txs) if txs.forall(tx => tx.sender.nonEmpty) =>
       context.become(standardOperation(state.copy(txPool = (state.txPool ++ txs).distinct)))
 
     case GetState =>
@@ -116,14 +120,13 @@ class CoinNode extends Actor with ActorLogging with Stash {
   }
 
   private def resolvingFork(state: State, branch: List[MinedBlock]): Receive = {
-    //process only if block is part of the branch
     case newBlock: MinedBlock if branch.headOption.exists(_.parentHash == newBlock.hash) =>
       getParent(newBlock, state) match {
         case Some(_) if isValid(branch :+ newBlock) =>
           context.become(executingBranch(state, state, (branch :+ newBlock).reverse))
           self ! ExecuteBranch
 
-        case None if isValid(branch :+ newBlock) =>
+        case None if isValid(branch :+ newBlock) && newBlock.blockNumber > 0=>
           context.become(resolvingFork(state, branch :+ newBlock))
 
           (sender() ? GetBlock(newBlock.parentHash)).mapTo[MinedBlock].onComplete {
@@ -143,6 +146,10 @@ class CoinNode extends Actor with ActorLogging with Stash {
 
     case _ =>
       stash()
+  }
+
+  private def sendToOthers(msg: Any): Unit = {
+    nodeParams.nodes.foreach(node => node ! msg)
   }
 
   private def getParent(block: MinedBlock, state: State): Option[MinedBlock] = {
@@ -203,8 +210,8 @@ class CoinNode extends Actor with ActorLogging with Stash {
           parentHash = parent.hash,
           transactions = selectTransactions(accounts, txPool),
           miner = miner,
-          blockDifficulty = CoinNode.difficulty,
-          totalDifficulty = parent.totalDifficulty + CoinNode.difficulty))
+          blockDifficulty = nodeParams.miningTargetDifficulty,
+          totalDifficulty = parent.totalDifficulty + nodeParams.miningTargetDifficulty))
       case _ =>
         None
     }
@@ -213,13 +220,18 @@ class CoinNode extends Actor with ActorLogging with Stash {
   private def selectTransactions(accounts: Map[Address, Account], txPool: List[Transaction]): List[Transaction] = {
     txPool
       .filter { tx =>
-        val sender = Address(tx.signature.pubKey)
-        accounts.get(sender).exists { acc =>
-          acc.txNumber == tx.txNumber && tx.amount + tx.txFee < acc.balance
+        tx.sender.exists { sender =>
+          accounts.get(sender).exists { acc =>
+            acc.txNumber == tx.txNumber && tx.amount + tx.txFee < acc.balance
+          }
         }
       }
       .sortBy(tx => tx.txFee)
       .take(CoinNode.maxTransactionsPerBlock)
+      //to make things simpler allow only 1 transaction per one sender
+      .groupBy(_.sender)
+      .flatMap { case (_, txs) => txs.headOption }
+      .toList
   }
 
   private def executeTransaction(tx: Transaction, state: Map[Address, Account]): Option[Map[Address, Account]] = {
@@ -237,7 +249,9 @@ class CoinNode extends Actor with ActorLogging with Stash {
 
 case object CoinNode {
 
-  val difficulty = 20
+  def props(params: NodeParams): Props = Props(new CoinNode(params))
+
+  //val difficulty = 20
   val maxTransactionsPerBlock = 5
   val minerReward = 5000000
 
@@ -270,6 +284,17 @@ case object CoinNode {
     }
   }
 
+  case class NodeParams(
+      sendBlocks: Boolean,
+      sendTransactions: Boolean,
+      ignoreBlocks: Boolean,
+      ignoreTransactions: Boolean,
+      isMining: Boolean,
+      miner: Address,
+      miningInterval: FiniteDuration,
+      miningTargetDifficulty: Long,
+      nodes: List[ActorRef])
+
   case object MineBlock
 
   case object GetLatestBlock
@@ -284,6 +309,9 @@ case object CoinNode {
 
   case object GetTransactions
 
+  case class Transactions(txs: List[Transaction])
+
   //for testing
   case object GetState
+
 }
