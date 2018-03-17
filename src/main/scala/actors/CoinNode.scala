@@ -61,9 +61,6 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
               log.info(s"rejecting block $newBlock")
           }
 
-        case Some(_) =>
-          log.info(s"discarding block $newBlock as it has lower total difficulty than current latest block")
-
         case None if state.latestBlock().exists(_.totalDifficulty < newBlock.totalDifficulty) =>
           context.become(resolvingFork(state, List(newBlock)))
 
@@ -73,6 +70,9 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
             case Failure(_) =>
               self ! FailToResolveFork
           }
+
+        case _ =>
+          log.info(s"discarding block $newBlock as it has lower total difficulty than current latest block")
       }
 
     case GetLatestBlock =>
@@ -126,7 +126,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
           context.become(executingBranch(state, state, (branch :+ newBlock).reverse))
           self ! ExecuteBranch
 
-        case None if isValid(branch :+ newBlock) && newBlock.blockNumber > 0=>
+        case None if isValid(branch :+ newBlock) && newBlock.blockNumber > 0 =>
           context.become(resolvingFork(state, branch :+ newBlock))
 
           (sender() ? GetBlock(newBlock.parentHash)).mapTo[MinedBlock].onComplete {
@@ -251,7 +251,6 @@ case object CoinNode {
 
   def props(params: NodeParams): Props = Props(new CoinNode(params))
 
-  //val difficulty = 20
   val maxTransactionsPerBlock = 5
   val minerReward = 5000000
 

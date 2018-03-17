@@ -18,11 +18,22 @@ case class Transaction(
     ECDSA.verify(signature, SHA3.calculate(this))
   }
 
+  override def toString: String = {
+    s"""
+      |{
+      |  amount: $amount,
+      |  txFee: $txFee,
+      |  recipient: $recipient,
+      |  txNumber: $txNumber,
+      |  signature: $signature
+      |}
+    """.stripMargin
+  }
 }
 
 case class Account(txNumber: BigInt, balance: BigInt) {
-  def subtract(amount: BigInt) = copy(balance - amount)
-  def add(amount: BigInt) = copy(balance + amount)
+  def subtract(amount: BigInt): Account = copy(balance - amount)
+  def add(amount: BigInt): Account = copy(balance + amount)
 }
 
 object Account {
@@ -46,7 +57,7 @@ case class UnminedBlock(
     blockDifficulty: BigInt,
     totalDifficulty: BigInt) extends Block {
 
-  lazy val hash = Block.hashForMining(this)
+  lazy val hash: ByteString = Block.hashForMining(this)
 }
 
 case class MinedBlock(
@@ -72,6 +83,20 @@ case class MinedBlock(
       ByteString(totalDifficulty)))
   }
 
+  override def toString: String = {
+    s"""
+      |{
+      |  blockNumber: $blockNumber,
+      |  parentHash: ${"0x" + Hex.toHexString(parentHash.toArray[Byte])},
+      |  transactions: $transactions,
+      |  miner: $miner,
+      |  blockDifficulty: $blockDifficulty,
+      |  totalDifficulty: $totalDifficulty,
+      |  nonce: ${"0x" + Hex.toHexString(nonce.toArray[Byte])},
+      |  powHash: ${"0x" + Hex.toHexString(powHash.toArray[Byte])}
+      |}
+    """.stripMargin
+  }
 }
 
 object MinedBlock {

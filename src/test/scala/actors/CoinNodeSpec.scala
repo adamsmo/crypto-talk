@@ -1,11 +1,11 @@
 package actors
 
 import actors.CoinNode.NodeParams
-import akka.actor.{ActorRef, ActorSystem}
-import akka.testkit.{ImplicitSender, TestKit}
+import akka.actor.{ ActorRef, ActorSystem }
+import akka.testkit.{ ImplicitSender, TestKit }
 import crypto.ECDSA
-import domain.{Address, MinedBlock}
-import org.scalatest.{BeforeAndAfterAll, FlatSpecLike, Matchers}
+import domain.{ Address, MinedBlock }
+import org.scalatest.{ BeforeAndAfterAll, FlatSpecLike, Matchers }
 
 import scala.concurrent.duration._
 
@@ -25,9 +25,11 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec")) with FlatSpecLike with
   }
 
   it should "reject invalid blocks" in new Env {
-    val node: ActorRef = system.actorOf(CoinNode.props(standardParams.copy(nodes = List(self))))
+    val node: ActorRef = system.actorOf(CoinNode.props(standardParams.copy(nodes = List(self), isMining = false)))
 
+    node ! CoinNode.genesisBlock.copy(blockNumber = 42)
 
+    expectNoMessage(5.seconds)
   }
 }
 
