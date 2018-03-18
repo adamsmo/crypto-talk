@@ -11,7 +11,9 @@ import scala.concurrent.duration._
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.{ Failure, Success }
 
-class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
+class CoinNode(
+    nodeParams: NodeParams,
+    nodes: List[ActorRef]) extends Actor with ActorLogging with Stash {
 
   implicit val ctx: ExecutionContext = context.system.dispatcher
   implicit val askTimeOut: Timeout = 5.seconds
@@ -35,16 +37,16 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
   private def standardOperation(state: State): Receive = {
     case MineBlock =>
       Future {
-        prepareBlock(state).foreach { b =>
+        CoinLogic.prepareBlock(state, nodeParams.miningTargetDifficulty).foreach { b =>
           val (pow, nonce) = MinerPoW.mineBlock(b.hash, nodeParams.miningTargetDifficulty)
           self ! MinedBlock(b, pow, nonce)
         }
       }
 
-    case newBlock: MinedBlock if isValid(newBlock, state) =>
-      getParent(newBlock, state) match {
+    case newBlock: MinedBlock if CoinLogic.isValid(newBlock, state) =>
+      CoinLogic.getParent(newBlock, state) match {
         case Some(parent) if state.latestBlock().contains(parent) =>
-          executeBlock(newBlock, state) match {
+          CoinLogic.executeBlock(newBlock, state) match {
             case Some(newState) =>
               context.become(standardOperation(newState))
               sendToOthers(newBlock)
@@ -53,7 +55,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
           }
 
         case Some(parent) if state.latestBlock().exists(latest => latest.totalDifficulty < newBlock.totalDifficulty) =>
-          executeBlock(newBlock, state.rollBack(parent.hash)) match {
+          CoinLogic.executeBlock(newBlock, state.rollBack(parent.hash)) match {
             case Some(newState) =>
               context.become(standardOperation(newState))
               sendToOthers(newBlock)
@@ -95,7 +97,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
     case ExecuteBranch =>
       reverseBranch match {
         case block :: rest =>
-          executeBlock(block, currentState) match {
+          CoinLogic.executeBlock(block, currentState) match {
             case Some(newState) =>
               context.become(executingBranch(oldState, newState, rest))
               self ! ExecuteBranch
@@ -121,12 +123,12 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
 
   private def resolvingFork(state: State, branch: List[MinedBlock]): Receive = {
     case newBlock: MinedBlock if branch.headOption.exists(_.parentHash == newBlock.hash) =>
-      getParent(newBlock, state) match {
-        case Some(_) if isValid(branch :+ newBlock) =>
+      CoinLogic.getParent(newBlock, state) match {
+        case Some(_) if CoinLogic.isValid(branch :+ newBlock) =>
           context.become(executingBranch(state, state, (branch :+ newBlock).reverse))
           self ! ExecuteBranch
 
-        case None if isValid(branch :+ newBlock) && newBlock.blockNumber > 0 =>
+        case None if CoinLogic.isValid(branch :+ newBlock) && newBlock.blockNumber > 0 =>
           context.become(resolvingFork(state, branch :+ newBlock))
 
           (sender() ? GetBlock(newBlock.parentHash)).mapTo[MinedBlock].onComplete {
@@ -149,110 +151,18 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
   }
 
   private def sendToOthers(msg: Block): Unit = if (nodeParams.sendBlocks) {
-    nodeParams.nodes.foreach(node => node ! msg)
+    nodes.foreach(node => node ! msg)
   }
 
   private def sendToOthers(msg: Transaction): Unit = if (nodeParams.sendBlocks) {
-    nodeParams.nodes.foreach(node => node ! msg)
+    nodes.foreach(node => node ! msg)
   }
 
-  private def getParent(block: MinedBlock, state: State): Option[MinedBlock] = {
-    state.chain
-      .find { case (chainBlock, _) => chainBlock.hash == block.parentHash }
-      .map { case (chainBlock, _) => chainBlock }
-  }
-
-  private def executeBlock(block: MinedBlock, state: State): Option[State] = {
-    if (isValid(block, state)) {
-      val initialAccounts = state.chain.headOption.map { case (_, acc) => acc }
-
-      block.transactions
-        //execute all transactions
-        .foldLeft(initialAccounts) {
-          case (accounts, tx) =>
-            accounts.flatMap(executeTransaction(tx, _))
-        }
-        //pay miner
-        .map { accounts =>
-          val minerAcc = accounts.getOrElse(block.miner, Account.empty)
-          val txFees = block.transactions.map(_.txFee).sum
-          accounts.updated(block.miner, minerAcc.add(txFees + CoinNode.minerReward))
-        }
-        //construct new state
-        .map { accounts =>
-          state.copy(chain = (block, accounts) :: state.chain, txPool = state.txPool.diff(block.transactions))
-        }
-    } else {
-      None
-    }
-  }
-
-  private def isValid(block: MinedBlock, state: State): Boolean = {
-    val diffValid = state.chain.headOption.exists {
-      case (latestBlock, _) =>
-        latestBlock.totalDifficulty + block.blockDifficulty == block.totalDifficulty
-    }
-    val txLimit = block.transactions.size <= CoinNode.maxTransactionsPerBlock
-    MinerPoW.isValidPoW(block) && diffValid && txLimit
-  }
-
-  private def isValid(branch: List[MinedBlock]): Boolean = branch match {
-    case b1 :: b2 :: rest =>
-      b1.totalDifficulty - b1.blockDifficulty == b2.totalDifficulty && b1.parentHash == b2.hash && isValid(rest)
-    case _ :: Nil =>
-      true
-    case Nil =>
-      true
-  }
-
-  private def prepareBlock(state: State): Option[UnminedBlock] = {
-    state match {
-      case State((parent, accounts) :: chain, txPool, Some(miner)) =>
-        Some(UnminedBlock(
-          blockNumber = parent.blockNumber + 1,
-          parentHash = parent.hash,
-          transactions = selectTransactions(accounts, txPool),
-          miner = miner,
-          blockDifficulty = nodeParams.miningTargetDifficulty,
-          totalDifficulty = parent.totalDifficulty + nodeParams.miningTargetDifficulty))
-      case _ =>
-        None
-    }
-  }
-
-  private def selectTransactions(accounts: Map[Address, Account], txPool: List[Transaction]): List[Transaction] = {
-    txPool
-      .filter { tx =>
-        tx.sender.exists { sender =>
-          accounts.get(sender).exists { acc =>
-            acc.txNumber == tx.txNumber && tx.amount + tx.txFee < acc.balance
-          }
-        }
-      }
-      .sortBy(tx => tx.txFee)
-      .take(CoinNode.maxTransactionsPerBlock)
-      //to make things simpler allow only 1 transaction per one sender
-      .groupBy(_.sender)
-      .flatMap { case (_, txs) => txs.headOption }
-      .toList
-  }
-
-  private def executeTransaction(tx: Transaction, state: Map[Address, Account]): Option[Map[Address, Account]] = {
-    for {
-      sender <- tx.sender
-      recipientAcc <- state.get(tx.recipient).orElse(Some(Account.empty))
-      senderAcc <- state.get(sender) if senderAcc.balance >= tx.txFee + tx.amount && senderAcc.txNumber == tx.txNumber
-    } yield {
-      state
-        .updated(tx.recipient, recipientAcc.add(tx.amount))
-        .updated(sender, senderAcc.subtract(tx.amount + tx.txFee))
-    }
-  }
 }
 
 case object CoinNode {
 
-  def props(params: NodeParams): Props = Props(new CoinNode(params))
+  def props(params: NodeParams, nodes: List[ActorRef]): Props = Props(new CoinNode(params, nodes))
 
   val maxTransactionsPerBlock = 5
   val minerReward = 5000000
@@ -294,8 +204,7 @@ case object CoinNode {
       isMining: Boolean,
       miner: Address,
       miningInterval: FiniteDuration,
-      miningTargetDifficulty: Long,
-      nodes: List[ActorRef])
+      miningTargetDifficulty: Long)
 
   case object MineBlock
 

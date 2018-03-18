@@ -92,6 +92,19 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
 
   //wallet
   it should "send founds from wallet" in new Env {
+    val params: NodeParams = standardParams.copy(
+      nodes = List(self),
+      isMining = false,
+      sendBlocks = false)
+
+    val nodes = Seq(
+      system.actorOf(CoinNode.props(params)),
+      system.actorOf(CoinNode.props(params)),
+      system.actorOf(CoinNode.props(params)),
+      system.actorOf(CoinNode.props(params)),
+      system.actorOf(CoinNode.props(params))
+    )
+
     fail()
   }
 
