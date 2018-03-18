@@ -29,8 +29,8 @@ case class Transaction(
 }
 
 case class Account(txNumber: BigInt, balance: BigInt) {
-  def subtract(amount: BigInt): Account = copy(balance - amount)
-  def add(amount: BigInt): Account = copy(balance + amount)
+  def subtract(amount: BigInt): Account = copy(balance = balance - amount)
+  def add(amount: BigInt): Account = copy(balance = balance + amount)
 }
 
 object Account {

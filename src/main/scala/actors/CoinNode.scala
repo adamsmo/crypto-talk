@@ -41,7 +41,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
         }
       }
 
-    case newBlock: MinedBlock =>
+    case newBlock: MinedBlock if isValid(newBlock, state) =>
       getParent(newBlock, state) match {
         case Some(parent) if state.latestBlock().contains(parent) =>
           executeBlock(newBlock, state) match {
@@ -148,7 +148,11 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
       stash()
   }
 
-  private def sendToOthers(msg: Any): Unit = {
+  private def sendToOthers(msg: Block): Unit = if (nodeParams.sendBlocks) {
+    nodeParams.nodes.foreach(node => node ! msg)
+  }
+
+  private def sendToOthers(msg: Transaction): Unit = if (nodeParams.sendBlocks) {
     nodeParams.nodes.foreach(node => node ! msg)
   }
 
@@ -202,7 +206,6 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
   }
 
   private def prepareBlock(state: State): Option[UnminedBlock] = {
-    //todo execute transactions to filter out failing ones
     state match {
       case State((parent, accounts) :: chain, txPool, Some(miner)) =>
         Some(UnminedBlock(

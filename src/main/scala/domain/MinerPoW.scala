@@ -13,7 +13,7 @@ object MinerPoW {
    * @param difficulty number of leading bits that have to be zeros
    * @return mined PoW with appropriate nonce
    */
-  def mineBlock(hashForMining: ByteString, difficulty: Long): (ByteString, ByteString) = {
+  def mineBlock(hashForMining: ByteString, difficulty: BigInt): (ByteString, ByteString) = {
     val nonce = ByteString(Array.fill(20)(Random.nextInt(256).toByte))
     val powHash = SHA3.calculate(Seq(hashForMining, nonce))
 
