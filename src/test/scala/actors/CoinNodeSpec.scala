@@ -1,6 +1,7 @@
 package actors
 
-import actors.CoinNode.{ GetState, MineBlock, NodeParams, State }
+import actors.CoinLogic.State
+import actors.CoinNode.{ ConnectNode, GetState, MineBlock, NodeParams }
 import akka.actor.{ ActorRef, ActorSystem, PoisonPill }
 import akka.testkit.{ ImplicitSender, TestKit }
 import crypto.ECDSA
@@ -41,7 +42,7 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
     node ! GetState
     val nodeState: State = expectMsgClass(classOf[State])
     val minerAccount: Option[Account] = nodeState.chain.headOption.flatMap { case (_, accounts) => accounts.get(minerAddress) }
-    minerAccount should contain(Account(0, 3 * CoinNode.minerReward))
+    minerAccount should contain(Account(0, 3 * CoinLogic.minerReward))
 
     node ! PoisonPill
   }
@@ -90,20 +91,28 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
     fail()
   }
 
+  it should "many blocks with lower difficulty outweighs one block with greater difficulty" in new Env {
+    fail()
+  }
+
   //wallet
   it should "send founds from wallet" in new Env {
-    val params: NodeParams = standardParams.copy(
-      nodes = List(self),
-      isMining = false,
-      sendBlocks = false)
+    val params: NodeParams = standardParams
 
     val nodes = Seq(
-      system.actorOf(CoinNode.props(params)),
-      system.actorOf(CoinNode.props(params)),
-      system.actorOf(CoinNode.props(params)),
-      system.actorOf(CoinNode.props(params)),
-      system.actorOf(CoinNode.props(params))
-    )
+      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-1"),
+      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-2"),
+      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-3"),
+      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-4"),
+      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-5"))
+
+    nodes.foreach(node => nodes.foreach(_ ! ConnectNode(node)))
+
+    Thread.sleep(15.seconds.toMillis)
+
+    nodes.head ! GetState
+    val m: State = expectMsgClass(classOf[State])
+    println(s"$m")
 
     fail()
   }
@@ -117,6 +126,11 @@ trait Env {
   val (prv, pub) = ECDSA.generateKeyPair()
   val minerAddress = Address(pub)
 
+  def generateMinerAddress(): Address = {
+    val (prv, pub) = ECDSA.generateKeyPair()
+    Address(pub)
+  }
+
   val standardParams = NodeParams(
     sendBlocks = true,
     sendTransactions = true,
@@ -125,7 +139,8 @@ trait Env {
     isMining = true,
     miner = minerAddress,
     miningInterval = 2.seconds,
-    miningTargetDifficulty = 5,
+    miningDifficulty = 6,
+    miningDifficultyDeviation = 2,
     nodes = Nil)
 
   val unminedBlock = UnminedBlock(
@@ -133,8 +148,8 @@ trait Env {
     parentHash = CoinNode.genesisBlock.hash,
     transactions = List.empty,
     miner = Address(pub),
-    blockDifficulty = standardParams.miningTargetDifficulty,
-    totalDifficulty = standardParams.miningTargetDifficulty + CoinNode.genesisBlock.totalDifficulty)
+    blockDifficulty = standardParams.miningDifficulty,
+    totalDifficulty = standardParams.miningDifficulty + CoinNode.genesisBlock.totalDifficulty)
 
   val minedBlock: MinedBlock = {
     val (pow, nonce) = MinerPoW.mineBlock(unminedBlock.hash, unminedBlock.blockDifficulty)

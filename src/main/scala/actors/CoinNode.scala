@@ -1,5 +1,6 @@
 package actors
 
+import actors.CoinLogic.State
 import actors.CoinNode._
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props, Stash }
 import akka.pattern.ask
@@ -11,9 +12,7 @@ import scala.concurrent.duration._
 import scala.concurrent.{ ExecutionContext, Future }
 import scala.util.{ Failure, Success }
 
-class CoinNode(
-    nodeParams: NodeParams,
-    nodes: List[ActorRef]) extends Actor with ActorLogging with Stash {
+class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
 
   implicit val ctx: ExecutionContext = context.system.dispatcher
   implicit val askTimeOut: Timeout = 5.seconds
@@ -32,13 +31,14 @@ class CoinNode(
     State(
       chain = List((CoinNode.genesisBlock, Map.empty)),
       txPool = List.empty,
-      minerAddress = Some(nodeParams.miner)))
+      minerAddress = Some(nodeParams.miner),
+      nodes = nodeParams.nodes))
 
   private def standardOperation(state: State): Receive = {
     case MineBlock =>
       Future {
-        CoinLogic.prepareBlock(state, nodeParams.miningTargetDifficulty).foreach { b =>
-          val (pow, nonce) = MinerPoW.mineBlock(b.hash, nodeParams.miningTargetDifficulty)
+        CoinLogic.prepareBlock(state, nodeParams.miningDifficulty).foreach { b =>
+          val (pow, nonce) = MinerPoW.mineBlock(b.hash, nodeParams.miningDifficulty)
           self ! MinedBlock(b, pow, nonce)
         }
       }
@@ -85,9 +85,15 @@ class CoinNode(
 
     case tx: Transaction if tx.sender.nonEmpty =>
       context.become(standardOperation(state.copy(txPool = (tx :: state.txPool).distinct)))
+      sendToOthers(tx)
 
     case Transactions(txs) if txs.forall(tx => tx.sender.nonEmpty) =>
       context.become(standardOperation(state.copy(txPool = (state.txPool ++ txs).distinct)))
+      txs.foreach(sendToOthers)
+
+    case ConnectNode(node) =>
+      import state._
+      context.become(standardOperation(state.copy(nodes = node :: nodes)))
 
     case GetState =>
       sender() ! state
@@ -151,60 +157,18 @@ class CoinNode(
   }
 
   private def sendToOthers(msg: Block): Unit = if (nodeParams.sendBlocks) {
-    nodes.foreach(node => node ! msg)
+    nodeParams.nodes.filter(node => node != self).foreach(node => node ! msg)
   }
 
-  private def sendToOthers(msg: Transaction): Unit = if (nodeParams.sendBlocks) {
-    nodes.foreach(node => node ! msg)
+  private def sendToOthers(msg: Transaction): Unit = if (nodeParams.sendTransactions) {
+    nodeParams.nodes.filter(node => node != self).foreach(node => node ! msg)
   }
 
 }
 
 case object CoinNode {
 
-  def props(params: NodeParams, nodes: List[ActorRef]): Props = Props(new CoinNode(params, nodes))
-
-  val maxTransactionsPerBlock = 5
-  val minerReward = 5000000
-
-  val genesisBlock = MinedBlock(
-    blockNumber = 0,
-    parentHash = ByteString(Hex.decode("00" * 32)),
-    transactions = Nil,
-    miner = Address(PubKey(42, 42)),
-    nonce = ByteString("42"),
-    powHash = ByteString("42"),
-    blockDifficulty = 0,
-    totalDifficulty = 0)
-
-  case class State(
-      chain: List[(MinedBlock, Map[Address, Account])],
-      txPool: List[Transaction],
-      minerAddress: Option[Address]) {
-
-    def rollBack(hash: ByteString): State = {
-      val (blocksToDiscard, commonPrefix) = chain.span { case (block, _) => block.hash != hash }
-      val transactionToAdd = blocksToDiscard.flatMap { case (block, _) => block.transactions }
-
-      copy(
-        chain = commonPrefix,
-        txPool = txPool ++ transactionToAdd)
-    }
-
-    def latestBlock(): Option[MinedBlock] = {
-      chain.headOption.map { case (block, _) => block }
-    }
-  }
-
-  case class NodeParams(
-      sendBlocks: Boolean,
-      sendTransactions: Boolean,
-      ignoreBlocks: Boolean,
-      ignoreTransactions: Boolean,
-      isMining: Boolean,
-      miner: Address,
-      miningInterval: FiniteDuration,
-      miningTargetDifficulty: Long)
+  def props(params: NodeParams): Props = Props(new CoinNode(params))
 
   case object MineBlock
 
@@ -222,7 +186,30 @@ case object CoinNode {
 
   case class Transactions(txs: List[Transaction])
 
+  case class ConnectNode(node: ActorRef)
+
   //for testing
   case object GetState
 
+  val genesisBlock = MinedBlock(
+    blockNumber = 0,
+    parentHash = ByteString(Hex.decode("00" * 32)),
+    transactions = Nil,
+    miner = Address(PubKey(42, 42)),
+    nonce = ByteString("42"),
+    powHash = ByteString("42"),
+    blockDifficulty = 0,
+    totalDifficulty = 0)
+
+  case class NodeParams(
+      sendBlocks: Boolean,
+      sendTransactions: Boolean,
+      ignoreBlocks: Boolean,
+      ignoreTransactions: Boolean,
+      isMining: Boolean,
+      miner: Address,
+      miningInterval: FiniteDuration,
+      miningDifficulty: BigInt,
+      miningDifficultyDeviation: BigInt,
+      nodes: List[ActorRef])
 }

@@ -1,9 +1,13 @@
 package actors
 
-import actors.CoinNode.State
+import akka.actor.ActorRef
+import akka.util.ByteString
 import domain._
 
 object CoinLogic {
+  val maxTransactionsPerBlock = 5
+  val minerReward = 5000000
+
   //block execution
   def executeBlock(block: MinedBlock, state: State): Option[State] = {
     if (isValid(block, state)) {
@@ -19,7 +23,7 @@ object CoinLogic {
         .map { accounts =>
           val minerAcc = accounts.getOrElse(block.miner, Account.empty)
           val txFees = block.transactions.map(_.txFee).sum
-          accounts.updated(block.miner, minerAcc.add(txFees + CoinNode.minerReward))
+          accounts.updated(block.miner, minerAcc.add(txFees + minerReward))
         }
         //construct new state
         .map { accounts =>
@@ -45,7 +49,7 @@ object CoinLogic {
   //block preparation
   def prepareBlock(state: State, targetDifficulty: BigInt): Option[UnminedBlock] = {
     state match {
-      case State((parent, accounts) :: chain, txPool, Some(miner)) =>
+      case State((parent, accounts) :: chain, txPool, Some(miner), _) =>
         Some(UnminedBlock(
           blockNumber = parent.blockNumber + 1,
           parentHash = parent.hash,
@@ -68,7 +72,7 @@ object CoinLogic {
         }
       }
       .sortBy(tx => tx.txFee)
-      .take(CoinNode.maxTransactionsPerBlock)
+      .take(maxTransactionsPerBlock)
       //to make things simpler allow only 1 transaction per one sender
       .groupBy(_.sender)
       .flatMap { case (_, txs) => txs.headOption }
@@ -87,7 +91,7 @@ object CoinLogic {
       case (latestBlock, _) =>
         latestBlock.totalDifficulty + block.blockDifficulty == block.totalDifficulty
     }
-    val txLimit = block.transactions.size <= CoinNode.maxTransactionsPerBlock
+    val txLimit = block.transactions.size <= maxTransactionsPerBlock
     MinerPoW.isValidPoW(block) && diffValid && txLimit
   }
 
@@ -98,5 +102,25 @@ object CoinLogic {
       true
     case Nil =>
       true
+  }
+
+  case class State(
+      chain: List[(MinedBlock, Map[Address, Account])],
+      txPool: List[Transaction],
+      minerAddress: Option[Address],
+      nodes: List[ActorRef]) {
+
+    def rollBack(hash: ByteString): State = {
+      val (blocksToDiscard, commonPrefix) = chain.span { case (block, _) => block.hash != hash }
+      val transactionToAdd = blocksToDiscard.flatMap { case (block, _) => block.transactions }
+
+      copy(
+        chain = commonPrefix,
+        txPool = txPool ++ transactionToAdd)
+    }
+
+    def latestBlock(): Option[MinedBlock] = {
+      chain.headOption.map { case (block, _) => block }
+    }
   }
 }
