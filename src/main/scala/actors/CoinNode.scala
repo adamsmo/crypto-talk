@@ -10,7 +10,7 @@ import org.bouncycastle.util.encoders.Hex
 
 import scala.concurrent.duration._
 import scala.concurrent.{ ExecutionContext, Future }
-import scala.util.{ Failure, Success }
+import scala.util.{ Failure, Random, Success }
 
 class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
 
@@ -19,11 +19,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
 
   override def preStart(): Unit = {
     if (nodeParams.isMining) {
-      context.system.scheduler.schedule(
-        initialDelay = 0.seconds,
-        interval = nodeParams.miningInterval,
-        receiver = self,
-        message = MineBlock)
+      self ! MineBlock
     }
   }
 
@@ -37,9 +33,19 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
   private def standardOperation(state: State): Receive = {
     case MineBlock =>
       Future {
-        CoinLogic.prepareBlock(state, nodeParams.miningDifficulty).foreach { b =>
-          val (pow, nonce) = MinerPoW.mineBlock(b.hash, nodeParams.miningDifficulty)
+        import nodeParams._
+
+        //artificial differentiators of difficulty so nodes will exchange blocks
+        //instead of keeping own chain because of same difficulty on all blocks
+        val d = Random.nextInt(miningDifficultyDeviation.toInt)
+        val blockDifficulty = miningDifficulty + d
+
+        CoinLogic.prepareBlock(state, blockDifficulty).foreach { b =>
+          val (pow, nonce) = MinerPoW.mineBlock(b.hash, blockDifficulty)
           self ! MinedBlock(b, pow, nonce)
+          if (nodeParams.isMining) {
+            self ! MineBlock
+          }
         }
       }
 
@@ -49,7 +55,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
           CoinLogic.executeBlock(newBlock, state) match {
             case Some(newState) =>
               context.become(standardOperation(newState))
-              sendToOthers(newBlock)
+              sendToOthers(newBlock, state.nodes)
             case None =>
               log.info(s"rejecting block $newBlock")
           }
@@ -58,7 +64,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
           CoinLogic.executeBlock(newBlock, state.rollBack(parent.hash)) match {
             case Some(newState) =>
               context.become(standardOperation(newState))
-              sendToOthers(newBlock)
+              sendToOthers(newBlock, state.nodes)
             case None =>
               log.info(s"rejecting block $newBlock")
           }
@@ -77,19 +83,30 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
           log.info(s"discarding block $newBlock as it has lower total difficulty than current latest block")
       }
 
+    case GetBlock(hash) =>
+      state.getBlocks
+        .find(block => block.hash == hash)
+        .foreach(block => sender() ! block)
+
     case GetLatestBlock =>
-      state.chain.headOption.foreach { case (block, _) => sender() ! block }
+      state.latestBlock().foreach { block => sender() ! block }
 
     case GetTransactions =>
       sender() ! Transactions(state.txPool)
 
     case tx: Transaction if tx.sender.nonEmpty =>
       context.become(standardOperation(state.copy(txPool = (tx :: state.txPool).distinct)))
-      sendToOthers(tx)
+      sendToOthers(tx, state.nodes)
 
     case Transactions(txs) if txs.forall(tx => tx.sender.nonEmpty) =>
       context.become(standardOperation(state.copy(txPool = (state.txPool ++ txs).distinct)))
-      txs.foreach(sendToOthers)
+      txs.foreach(sendToOthers(_, state.nodes))
+
+    case GetTransactionInfo(hash) =>
+      state.getBlocks
+        .flatMap(b => b.transactions.map(tx => (tx, b.blockNumber)))
+        .find { case (tx, _) => tx.hash == hash }
+        .foreach { case (tx, blockNumber) => sender() ! TransactionInfo(tx, blockNumber) }
 
     case ConnectNode(node) =>
       import state._
@@ -156,12 +173,12 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
       stash()
   }
 
-  private def sendToOthers(msg: Block): Unit = if (nodeParams.sendBlocks) {
-    nodeParams.nodes.filter(node => node != self).foreach(node => node ! msg)
+  private def sendToOthers(msg: Block, nodes: List[ActorRef]): Unit = if (nodeParams.sendBlocks) {
+    nodes.filter(node => node != self).foreach(node => node ! msg)
   }
 
-  private def sendToOthers(msg: Transaction): Unit = if (nodeParams.sendTransactions) {
-    nodeParams.nodes.filter(node => node != self).foreach(node => node ! msg)
+  private def sendToOthers(msg: Transaction, nodes: List[ActorRef]): Unit = if (nodeParams.sendTransactions) {
+    nodes.filter(node => node != self).foreach(node => node ! msg)
   }
 
 }
@@ -174,13 +191,17 @@ case object CoinNode {
 
   case object GetLatestBlock
 
-  case class GetBlock(query: ByteString)
+  case class GetBlock(hash: ByteString)
 
   case object ForkResolved
 
   case object FailToResolveFork
 
   case object ExecuteBranch
+
+  case class GetTransactionInfo(hash: ByteString)
+
+  case class TransactionInfo(tx: Transaction, blockNumber: BigInt)
 
   case object GetTransactions
 

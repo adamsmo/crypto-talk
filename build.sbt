@@ -16,9 +16,11 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test,
   "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpVersion % Test,
   "org.scalatest" %% "scalatest" % "3.0.5" % Test,
-  "org.scalacheck" %% "scalacheck" % "1.13.4" % Test
+  "org.scalacheck" %% "scalacheck" % "1.13.4" % Test,
+  "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
 )
 
+//code formatting
 scalariformPreferences := scalariformPreferences.value
   .setPreference(AlignSingleLineCaseStatements, true)
   .setPreference(DoubleIndentConstructorArguments, true)

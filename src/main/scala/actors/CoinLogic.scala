@@ -6,12 +6,12 @@ import domain._
 
 object CoinLogic {
   val maxTransactionsPerBlock = 5
-  val minerReward = 5000000
+  val minerReward = 5
 
   //block execution
   def executeBlock(block: MinedBlock, state: State): Option[State] = {
     if (isValid(block, state)) {
-      val initialAccounts = state.chain.headOption.map { case (_, acc) => acc }
+      val initialAccounts = state.getAccounts.headOption
 
       block.transactions
         //execute all transactions
@@ -87,9 +87,8 @@ object CoinLogic {
   }
 
   def isValid(block: MinedBlock, state: State): Boolean = {
-    val diffValid = state.chain.headOption.exists {
-      case (latestBlock, _) =>
-        latestBlock.totalDifficulty + block.blockDifficulty == block.totalDifficulty
+    val diffValid = state.getBlocks.headOption.exists { latestBlock =>
+      latestBlock.totalDifficulty + block.blockDifficulty == block.totalDifficulty
     }
     val txLimit = block.transactions.size <= maxTransactionsPerBlock
     MinerPoW.isValidPoW(block) && diffValid && txLimit
@@ -110,6 +109,10 @@ object CoinLogic {
       minerAddress: Option[Address],
       nodes: List[ActorRef]) {
 
+    def getBlocks: List[MinedBlock] = chain.map { case (block, _) => block }
+
+    def getAccounts: List[Map[Address, Account]] = chain.map { case (_, accounts) => accounts }
+
     def rollBack(hash: ByteString): State = {
       val (blocksToDiscard, commonPrefix) = chain.span { case (block, _) => block.hash != hash }
       val transactionToAdd = blocksToDiscard.flatMap { case (block, _) => block.transactions }
@@ -120,7 +123,7 @@ object CoinLogic {
     }
 
     def latestBlock(): Option[MinedBlock] = {
-      chain.headOption.map { case (block, _) => block }
+      getBlocks.headOption
     }
   }
 }

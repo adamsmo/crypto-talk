@@ -8,6 +8,7 @@ import crypto.ECDSA
 import domain._
 import org.scalatest.concurrent.Eventually
 import org.scalatest.{ BeforeAndAfterAll, FlatSpecLike, Matchers }
+import org.slf4j.{ Logger, LoggerFactory }
 
 import scala.concurrent.duration._
 
@@ -19,6 +20,8 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
   with Eventually {
 
   implicit override val patienceConfig: PatienceConfig = PatienceConfig(timeout = 5.seconds, interval = 1.second)
+
+  val log: Logger = LoggerFactory.getLogger(this.getClass)
 
   override def afterAll {
     TestKit.shutdownActorSystem(system)
@@ -41,7 +44,8 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
 
     node ! GetState
     val nodeState: State = expectMsgClass(classOf[State])
-    val minerAccount: Option[Account] = nodeState.chain.headOption.flatMap { case (_, accounts) => accounts.get(minerAddress) }
+    val minerAccount: Option[Account] = nodeState.chain.headOption
+      .flatMap { case (_, accounts) => accounts.get(recipientAddress) }
     minerAccount should contain(Account(0, 3 * CoinLogic.minerReward))
 
     node ! PoisonPill
@@ -96,23 +100,30 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
   }
 
   //wallet
-  it should "send founds from wallet" in new Env {
-    val params: NodeParams = standardParams
+  it should "send founds from on wallet to another" in new Env {
+    val params: NodeParams = standardParams.copy(
+      miningInterval = 2.seconds,
+      miningDifficulty = 11,
+      miningDifficultyDeviation = 10)
 
-    val nodes = Seq(
-      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-1"),
-      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-2"),
-      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-3"),
-      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-4"),
-      system.actorOf(CoinNode.props(params.copy(miner = generateMinerAddress())), "node-5"))
+    val (nodes, prvKeys) = (for {
+      n <- 1 to 5
+    } yield {
+      val (prvKey, pubKey) = ECDSA.generateKeyPair()
+      val miner = Address(pubKey)
+      (system.actorOf(CoinNode.props(params.copy(miner = miner)), s"node-$n"), prvKey)
+    }).unzip
 
     nodes.foreach(node => nodes.foreach(_ ! ConnectNode(node)))
 
-    Thread.sleep(15.seconds.toMillis)
-
-    nodes.head ! GetState
-    val m: State = expectMsgClass(classOf[State])
-    println(s"$m")
+    while (true) {
+      Thread.sleep(3.seconds.toMillis)
+      nodes.head ! GetState
+      val m: State = expectMsgType[State](5.seconds)
+      log.info(s"block number: ${m.latestBlock().map(_.blockNumber)} - ${m.latestBlock().map(_.miner)}")
+      log.info(s"transactions: ${m.latestBlock().map(_.transactions).getOrElse(Nil)}")
+      log.info(s"accounts: \n${m.chain.headOption.map { case (_, a) => a.toList }.getOrElse(Nil).mkString("\n")}")
+    }
 
     fail()
   }
@@ -124,7 +135,7 @@ class CoinNodeSpec extends TestKit(ActorSystem("MySpec"))
 
 trait Env {
   val (prv, pub) = ECDSA.generateKeyPair()
-  val minerAddress = Address(pub)
+  val recipientAddress = Address(pub)
 
   def generateMinerAddress(): Address = {
     val (prv, pub) = ECDSA.generateKeyPair()
@@ -137,7 +148,7 @@ trait Env {
     ignoreBlocks = true,
     ignoreTransactions = true,
     isMining = true,
-    miner = minerAddress,
+    miner = recipientAddress,
     miningInterval = 2.seconds,
     miningDifficulty = 6,
     miningDifficultyDeviation = 2,

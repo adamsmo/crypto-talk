@@ -15,6 +15,8 @@ case class Transaction(
     ECDSA.verify(signature, SHA3.calculate(this))
   }
 
+  lazy val hash: ByteString = SHA3.calculate(this)
+
   override def toString: String = {
     s"""
       |{
