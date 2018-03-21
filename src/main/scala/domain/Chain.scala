@@ -43,8 +43,15 @@ case class SignedTransaction(
   }
 }
 
+object SignedTransaction {
+  def apply(tx: UnsignedTransaction, privateKey: PrvKey): SignedTransaction = {
+    ???
+  }
+}
+
 case class Account(txNumber: BigInt, balance: BigInt) {
   def subtract(amount: BigInt): Account = copy(balance = balance - amount)
+
   def add(amount: BigInt): Account = copy(balance = balance + amount)
 }
 
@@ -97,16 +104,16 @@ case class MinedBlock(
 
   override def toString: String = {
     s"""
-      |{
-      |  blockNumber: $blockNumber,
-      |  parentHash: ${"0x" + Hex.toHexString(parentHash.toArray[Byte])},
-      |  transactions: $transactions,
-      |  miner: $miner,
-      |  blockDifficulty: $blockDifficulty,
-      |  totalDifficulty: $totalDifficulty,
-      |  nonce: ${"0x" + Hex.toHexString(nonce.toArray[Byte])},
-      |  powHash: ${"0x" + Hex.toHexString(powHash.toArray[Byte])}
-      |}
+       |{
+       |  blockNumber: $blockNumber,
+       |  parentHash: ${"0x" + Hex.toHexString(parentHash.toArray[Byte])},
+       |  transactions: $transactions,
+       |  miner: $miner,
+       |  blockDifficulty: $blockDifficulty,
+       |  totalDifficulty: $totalDifficulty,
+       |  nonce: ${"0x" + Hex.toHexString(nonce.toArray[Byte])},
+       |  powHash: ${"0x" + Hex.toHexString(powHash.toArray[Byte])}
+       |}
     """.stripMargin
   }
 }
