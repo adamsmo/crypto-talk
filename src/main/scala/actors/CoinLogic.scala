@@ -34,7 +34,7 @@ object CoinLogic {
     }
   }
 
-  private def executeTransaction(tx: Transaction, state: Map[Address, Account]): Option[Map[Address, Account]] = {
+  private def executeTransaction(tx: SignedTransaction, state: Map[Address, Account]): Option[Map[Address, Account]] = {
     for {
       sender <- tx.sender
       recipientAcc <- state.get(tx.recipient).orElse(Some(Account.empty))
@@ -62,7 +62,7 @@ object CoinLogic {
     }
   }
 
-  private def selectTransactions(accounts: Map[Address, Account], txPool: List[Transaction]): List[Transaction] = {
+  private def selectTransactions(accounts: Map[Address, Account], txPool: List[SignedTransaction]): List[SignedTransaction] = {
     txPool
       .filter { tx =>
         tx.sender.exists { sender =>
@@ -105,7 +105,7 @@ object CoinLogic {
 
   case class State(
       chain: List[(MinedBlock, Map[Address, Account])],
-      txPool: List[Transaction],
+      txPool: List[SignedTransaction],
       minerAddress: Option[Address],
       nodes: List[ActorRef]) {
 
@@ -120,6 +120,10 @@ object CoinLogic {
       copy(
         chain = commonPrefix,
         txPool = txPool ++ transactionToAdd)
+    }
+
+    def getLatestAccounts: Map[Address, Account] = {
+      getAccounts.headOption.getOrElse(Map.empty)
     }
 
     def latestBlock(): Option[MinedBlock] = {

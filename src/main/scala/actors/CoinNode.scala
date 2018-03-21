@@ -94,7 +94,7 @@ class CoinNode(nodeParams: NodeParams) extends Actor with ActorLogging with Stas
     case GetTransactions =>
       sender() ! Transactions(state.txPool)
 
-    case tx: Transaction if tx.sender.nonEmpty =>
+    case tx: SignedTransaction if tx.sender.nonEmpty =>
       context.become(standardOperation(state.copy(txPool = (tx :: state.txPool).distinct)))
       sendToOthers(tx, state.nodes)
 
@@ -201,15 +201,14 @@ case object CoinNode {
 
   case class GetTransactionInfo(hash: ByteString)
 
-  case class TransactionInfo(tx: Transaction, blockNumber: BigInt)
+  case class TransactionInfo(tx: SignedTransaction, blockNumber: BigInt)
 
   case object GetTransactions
 
-  case class Transactions(txs: List[Transaction])
+  case class Transactions(txs: List[SignedTransaction])
 
   case class ConnectNode(node: ActorRef)
 
-  //for testing
   case object GetState
 
   val genesisBlock = MinedBlock(

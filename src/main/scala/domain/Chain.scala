@@ -4,12 +4,25 @@ import akka.util.ByteString
 import crypto.{ ECDSA, SHA3 }
 import org.bouncycastle.util.encoders.Hex
 
-case class Transaction(
+trait Transaction {
+  val amount: BigInt
+  val txFee: BigInt
+  val recipient: Address
+  val txNumber: BigInt
+}
+
+case class UnsignedTransaction(
+    amount: BigInt,
+    txFee: BigInt,
+    recipient: Address,
+    txNumber: BigInt) extends Transaction
+
+case class SignedTransaction(
     amount: BigInt,
     txFee: BigInt,
     recipient: Address,
     txNumber: BigInt,
-    signature: Signature) {
+    signature: Signature) extends Transaction {
 
   lazy val sender: Option[Address] = {
     ECDSA.verify(signature, SHA3.calculate(this))
@@ -51,7 +64,7 @@ trait Block {
 case class UnminedBlock(
     blockNumber: BigInt,
     parentHash: ByteString,
-    transactions: List[Transaction],
+    transactions: List[SignedTransaction],
     miner: Address,
     blockDifficulty: BigInt,
     totalDifficulty: BigInt) extends Block {
@@ -62,7 +75,7 @@ case class UnminedBlock(
 case class MinedBlock(
     blockNumber: BigInt,
     parentHash: ByteString,
-    transactions: List[Transaction],
+    transactions: List[SignedTransaction],
     miner: Address,
     blockDifficulty: BigInt,
     totalDifficulty: BigInt,

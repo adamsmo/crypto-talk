@@ -4,7 +4,7 @@ name := "demo-coin"
 
 version := "0.1"
 
-scalaVersion := "2.12.4"
+scalaVersion := "2.12.5"
 
 val akkaVersion = "2.5.11"
 val akkaHttpVersion = "10.1.0"
