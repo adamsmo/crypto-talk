@@ -106,34 +106,6 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
       sender() ! state
   }
 
-  def executingBranch(oldState: State, currentState: State, reverseBranch: List[MinedBlock]): Receive = {
-    case ExecuteBranch =>
-      reverseBranch match {
-        case block :: rest =>
-          Logic.executeBlock(block, currentState) match {
-            case Some(newState) =>
-              context.become(executingBranch(oldState, newState, rest))
-              self ! ExecuteBranch
-            case None =>
-              self ! FailToResolveFork
-          }
-        case Nil =>
-          self ! ForkResolved
-      }
-    case ForkResolved =>
-      unstashAll()
-      context.become(standardOperation(currentState))
-      log.info(s"fork resolved")
-
-    case FailToResolveFork =>
-      unstashAll()
-      context.become(standardOperation(oldState))
-      log.info(s"fail to resolve fork rolling back to normal operation")
-
-    case _ =>
-      stash()
-  }
-
   private def resolvingFork(state: State, branch: List[MinedBlock]): Receive = {
     case newBlock: MinedBlock if branch.lastOption.exists(_.parentHash == newBlock.hash) =>
       Logic.getParent(newBlock, state) match {
@@ -154,6 +126,35 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
     case FailToResolveFork =>
       unstashAll()
       context.become(standardOperation(state))
+      log.info(s"fail to resolve fork rolling back to normal operation")
+
+    case _ =>
+      stash()
+  }
+
+  private def executingBranch(oldState: State, currentState: State, reverseBranch: List[MinedBlock]): Receive = {
+    case ExecuteBranch =>
+      reverseBranch match {
+        case block :: rest =>
+          Logic.executeBlock(block, currentState) match {
+            case Some(newState) =>
+              context.become(executingBranch(oldState, newState, rest))
+              self ! ExecuteBranch
+            case None =>
+              self ! FailToResolveFork
+          }
+        case Nil =>
+          self ! ForkResolved
+      }
+
+    case ForkResolved =>
+      unstashAll()
+      context.become(standardOperation(currentState))
+      log.info(s"fork resolved")
+
+    case FailToResolveFork =>
+      unstashAll()
+      context.become(standardOperation(oldState))
       log.info(s"fail to resolve fork rolling back to normal operation")
 
     case _ =>
