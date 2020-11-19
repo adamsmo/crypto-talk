@@ -4,7 +4,7 @@ name := "demo-coin"
 
 version := "0.1"
 
-scalaVersion := "2.12.5"
+scalaVersion := "2.12.12"
 
 val akkaVersion = "2.5.11"
 val akkaHttpVersion = "10.1.0"
@@ -13,6 +13,7 @@ libraryDependencies ++= Seq(
   "org.bouncycastle" % "bcprov-ext-jdk15on" % "1.59",
   "com.typesafe.akka" %% "akka-actor" % akkaVersion,
   "com.typesafe.akka" %% "akka-http" % akkaHttpVersion,
+  "com.typesafe.akka" %% "akka-slf4j" % akkaVersion,
   "com.typesafe.akka" %% "akka-testkit" % akkaVersion % Test,
   "com.typesafe.akka" %% "akka-http-testkit" % akkaHttpVersion % Test,
   "org.scalatest" %% "scalatest" % "3.0.5" % Test,
@@ -29,4 +30,4 @@ scalariformPreferences := scalariformPreferences.value
 scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature", "-Xfatal-warnings")
 
 //hack for sbt to not crash when watching for file changes
-watchService := (() => new sbt.io.PollingWatchService(pollInterval.value))
+//watchService := (() => new sbt.io.PollingWatchService(pollInterval.value))

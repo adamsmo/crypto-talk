@@ -6,16 +6,26 @@ import org.bouncycastle.crypto.digests.SHA3Digest
 
 object SHA3 {
   def calculate(sig: Signature): ByteString = {
-    calculate(Seq(ByteString(sig.r), ByteString(sig.s), ByteString(sig.pubKey.x), ByteString(sig.pubKey.y)))
-  }
-
-  def calculate(tx: Transaction): ByteString = {
-    calculate(Seq(ByteString(tx.amount), ByteString(tx.txFee), tx.recipient.asBytes, ByteString(tx.txNumber)))
+    calculate(
+      Seq(
+        ByteString(sig.r),
+        ByteString(sig.s),
+        ByteString(sig.pubKey.x),
+        ByteString(sig.pubKey.y)))
   }
 
   def calculate(txs: List[Transaction]): ByteString = {
     val txHashes = txs.map(t => calculate(t))
     calculate(txHashes)
+  }
+
+  def calculate(tx: Transaction): ByteString = {
+    calculate(
+      Seq(
+        ByteString(tx.amount),
+        ByteString(tx.txFee),
+        tx.recipient.asBytes,
+        ByteString(tx.txNumber)))
   }
 
   def calculate(in: ByteString): ByteString = calculate(Seq(in))

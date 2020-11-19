@@ -14,13 +14,16 @@ import scala.util.Success
 
 //asks periodically for own balance
 //accepts amounts and receiver of tx and prepares tx to send to node
-class Wallet(prv: PrvKey, pub: PubKey, name: String, node: ActorRef) extends Actor with ActorLogging {
+class Wallet(prv: PrvKey, pub: PubKey, name: String, node: ActorRef)
+  extends Actor
+  with ActorLogging {
 
   implicit val ctx: ExecutionContext = context.system.dispatcher
   implicit val askTimeOut: Timeout = 5.seconds
   private val address: Address = Address(pub)
 
   override def preStart(): Unit = {
+    //ticker to check balance every 3s to sync it with connected node state
     context.system.scheduler.schedule(0.seconds, 3.second, self, UpdateBalance)
   }
 
@@ -58,13 +61,14 @@ class Wallet(prv: PrvKey, pub: PubKey, name: String, node: ActorRef) extends Act
 }
 
 object Wallet {
-  def props(prv: PrvKey, pub: PubKey, name: String, node: ActorRef) = Props(new Wallet(prv, pub, name, node))
+  def props(prv: PrvKey, pub: PubKey, name: String, node: ActorRef): Props =
+    Props(new Wallet(prv, pub, name, node))
 
   case class SendCoins(amount: BigInt, fee: BigInt, recipient: Address)
+
+  case class Balance(b: BigInt)
 
   case object UpdateBalance
 
   case object CheckBalance
-
-  case class Balance(b: BigInt)
 }

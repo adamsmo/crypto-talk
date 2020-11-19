@@ -16,7 +16,11 @@ import scala.language.implicitConversions
 object ECDSA {
 
   private val ecSpec = ECNamedCurveTable.getParameterSpec("secp256k1")
-  private val domainParams = new ECDomainParameters(ecSpec.getCurve, ecSpec.getG, ecSpec.getN, ecSpec.getH)
+  private val domainParams = new ECDomainParameters(
+    ecSpec.getCurve,
+    ecSpec.getG,
+    ecSpec.getN,
+    ecSpec.getH)
   private val random = new SecureRandom()
 
   def generateKeyPair(): (PrvKey, PubKey) = {
@@ -28,7 +32,9 @@ object ECDSA {
     val prv = pair.getPrivate.asInstanceOf[ECPrivateKeyParameters]
     val pub = pair.getPublic.asInstanceOf[ECPublicKeyParameters]
 
-    (PrvKey(prv.getD), PubKey(pub.getQ.getAffineXCoord, pub.getQ.getAffineYCoord))
+    (
+      PrvKey(prv.getD),
+      PubKey(pub.getQ.getAffineXCoord, pub.getQ.getAffineYCoord))
   }
 
   def sign(data: ByteString, prvKey: PrvKey): Signature = {
@@ -36,7 +42,7 @@ object ECDSA {
     val signer = new ECDSASigner()
     signer.init(true, params)
 
-    val (r :: s :: Nil) = signer.generateSignature(SHA3.calculate(data)).toList
+    val r :: s :: Nil = signer.generateSignature(SHA3.calculate(data)).toList
     //to not implement recovery just pass public key
     val pubKey = ecSpec.getG.multiply(prvKey.d.bigInteger).normalize()
 

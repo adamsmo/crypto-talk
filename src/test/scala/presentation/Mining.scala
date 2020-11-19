@@ -8,9 +8,8 @@ import domain.{ Account, MinedBlock }
 
 class Mining extends TestSetup {
   "Node" should "mine new consecutive blocks and send them" in new Env {
-    val node: ActorRef = system.actorOf(Node.props(standardParams.copy(
-      nodes = List(self),
-      isMining = false)))
+    val node: ActorRef = system.actorOf(
+      Node.props(standardParams.copy(nodes = List(self), isMining = false)))
 
     node ! MineBlock
     expectMsgClass(classOf[MinedBlock]).blockNumber shouldBe 1

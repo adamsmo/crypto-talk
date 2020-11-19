@@ -6,7 +6,10 @@ import org.scalacheck.Gen
 import org.scalatest.prop.GeneratorDrivenPropertyChecks
 import org.scalatest.{ FlatSpec, Matchers }
 
-class ECDSASpec extends FlatSpec with GeneratorDrivenPropertyChecks with Matchers {
+class ECDSASpec
+  extends FlatSpec
+  with GeneratorDrivenPropertyChecks
+  with Matchers {
   "ECDSA" should "sign and verify signatures" in new Env {
     forAll(keys, msgs) {
       case ((prvKey, pubKey), msg) =>
@@ -25,6 +28,8 @@ class ECDSASpec extends FlatSpec with GeneratorDrivenPropertyChecks with Matcher
 }
 
 trait Env {
-  val keys: Gen[(PrvKey, PubKey)] = Gen.const(None).map(_ => ECDSA.generateKeyPair())
-  val msgs: Gen[ByteString] = Gen.listOf(Gen.numChar.map(_.toByte)).map(b => ByteString(b: _*))
+  val keys: Gen[(PrvKey, PubKey)] =
+    Gen.const(None).map(_ => ECDSA.generateKeyPair())
+  val msgs: Gen[ByteString] =
+    Gen.listOf(Gen.numChar.map(_.toByte)).map(b => ByteString(b: _*))
 }

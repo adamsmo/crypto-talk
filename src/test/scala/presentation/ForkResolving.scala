@@ -10,9 +10,8 @@ import scala.concurrent.duration._
 
 class ForkResolving extends TestSetup {
   "Node" should "reject invalid blocks" in new Env {
-    val node: ActorRef = system.actorOf(Node.props(standardParams.copy(
-      nodes = List(self),
-      isMining = false)))
+    val node: ActorRef = system.actorOf(
+      Node.props(standardParams.copy(nodes = List(self), isMining = false)))
 
     node ! minedBlock.copy(blockNumber = 3)
     expectNoMessage(3.seconds)
@@ -23,10 +22,10 @@ class ForkResolving extends TestSetup {
   }
 
   it should "accept new valid blocks" in new Env {
-    val node: ActorRef = system.actorOf(Node.props(standardParams.copy(
-      nodes = List(self),
-      isMining = false,
-      sendBlocks = false)))
+    val node: ActorRef = system.actorOf(
+      Node.props(
+        standardParams
+          .copy(nodes = List(self), isMining = false, sendBlocks = false)))
 
     node ! minedBlock
     expectNoMessage(5.seconds)
@@ -37,15 +36,15 @@ class ForkResolving extends TestSetup {
   }
 
   it should "resolve forks after network split" in new Env {
-    val node1: ActorRef = system.actorOf(Node.props(standardParams.copy(
-      nodes = List(self),
-      isMining = false)), "n1")
-    val node2: ActorRef = system.actorOf(Node.props(standardParams.copy(
-      nodes = List(self),
-      isMining = false)), "n2")
-    val node3: ActorRef = system.actorOf(Node.props(standardParams.copy(
-      nodes = List(self),
-      isMining = false)), "n3")
+    val node1: ActorRef = system.actorOf(
+      Node.props(standardParams.copy(nodes = List(self), isMining = false)),
+      "n1")
+    val node2: ActorRef = system.actorOf(
+      Node.props(standardParams.copy(nodes = List(self), isMining = false)),
+      "n2")
+    val node3: ActorRef = system.actorOf(
+      Node.props(standardParams.copy(nodes = List(self), isMining = false)),
+      "n3")
 
     for (n <- 1 to 3) {
       node1 ! MineBlock
@@ -71,9 +70,13 @@ class ForkResolving extends TestSetup {
 
     eventually {
       node1 ! GetState
-      expectMsgClass(classOf[State]).latestBlock().map(_.blockNumber) shouldBe Some(6)
+      expectMsgClass(classOf[State])
+        .latestBlock()
+        .map(_.blockNumber) shouldBe Some(6)
       node3 ! GetState
-      expectMsgClass(classOf[State]).latestBlock().map(_.blockNumber) shouldBe Some(6)
+      expectMsgClass(classOf[State])
+        .latestBlock()
+        .map(_.blockNumber) shouldBe Some(6)
     }
   }
 

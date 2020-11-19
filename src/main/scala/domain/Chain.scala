@@ -48,12 +48,7 @@ case class SignedTransaction(
 object SignedTransaction {
   def apply(tx: UnsignedTransaction, privateKey: PrvKey): SignedTransaction = {
     val signature = ECDSA.sign(tx.hash, privateKey)
-    SignedTransaction(
-      tx.amount,
-      tx.txFee,
-      tx.recipient,
-      tx.txNumber,
-      signature)
+    SignedTransaction(tx.amount, tx.txFee, tx.recipient, tx.txNumber, signature)
   }
 }
 
@@ -89,15 +84,16 @@ case class MinedBlock(
 
   lazy val hash: ByteString = {
     val txsHash = SHA3.calculate(transactions)
-    SHA3.calculate(Seq(
-      ByteString(blockNumber),
-      parentHash,
-      txsHash,
-      miner.asBytes,
-      nonce,
-      powHash,
-      ByteString(blockDifficulty),
-      ByteString(totalDifficulty)))
+    SHA3.calculate(
+      Seq(
+        ByteString(blockNumber),
+        parentHash,
+        txsHash,
+        miner.asBytes,
+        nonce,
+        powHash,
+        ByteString(blockDifficulty),
+        ByteString(totalDifficulty)))
   }
 
   override def toString: String = {
@@ -117,7 +113,10 @@ case class MinedBlock(
 }
 
 object MinedBlock {
-  def apply(b: UnminedBlock, powHash: ByteString, nonce: ByteString): MinedBlock =
+  def apply(
+    b: UnminedBlock,
+    powHash: ByteString,
+    nonce: ByteString): MinedBlock =
     MinedBlock(
       b.blockNumber,
       b.parentHash,
@@ -132,13 +131,14 @@ object MinedBlock {
 object Block {
   def hashForMining(block: Block): ByteString = {
     val txsHash = SHA3.calculate(block.transactions)
-    SHA3.calculate(Seq(
-      ByteString(block.blockNumber),
-      block.parentHash,
-      txsHash,
-      block.miner.asBytes,
-      ByteString(block.blockDifficulty),
-      ByteString(block.totalDifficulty)))
+    SHA3.calculate(
+      Seq(
+        ByteString(block.blockNumber),
+        block.parentHash,
+        txsHash,
+        block.miner.asBytes,
+        ByteString(block.blockDifficulty),
+        ByteString(block.totalDifficulty)))
   }
 }
 
@@ -149,7 +149,7 @@ case class Account(txNumber: BigInt, balance: BigInt) {
 }
 
 object Account {
-  def empty = Account(0, 0)
+  def empty: Account = Account(0, 0)
 }
 
 //remark signature contans V that allow to recover public key from r and s
@@ -163,7 +163,8 @@ case class PubKey(x: BigInt, y: BigInt)
 case class PrvKey(d: BigInt)
 
 case class Address(key: PubKey) {
-  lazy val asBytes: ByteString = SHA3.calculate(Seq(ByteString(key.x), ByteString(key.y)))
+  lazy val asBytes: ByteString =
+    SHA3.calculate(Seq(ByteString(key.x), ByteString(key.y)))
 
   override def toString: String = "0x" + Hex.toHexString(asBytes.toArray[Byte])
 }
