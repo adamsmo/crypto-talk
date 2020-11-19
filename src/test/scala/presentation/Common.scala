@@ -64,8 +64,8 @@ trait Env {
     nodesCount: Int,
     name: String,
     system: ActorSystem,
-    params: NodeParams): immutable.Seq[(ActorRef, (PrvKey, PubKey))] =
-    for {
+    params: NodeParams): List[(ActorRef, (PrvKey, PubKey))] =
+    (for {
       n <- 1 to nodesCount
     } yield {
       val (prvKey, pubKey) = ECDSA.generateKeyPair()
@@ -73,7 +73,7 @@ trait Env {
       (
         system.actorOf(Node.props(params.copy(miner = miner)), s"$name-$n"),
         (prvKey, pubKey))
-    }
+    }).toList
 
   def connectAll(nodes: Seq[ActorRef]): Unit =
     nodes.foreach(node => nodes.foreach(_ ! ConnectNode(node)))
