@@ -13,8 +13,8 @@ class BigFireWall extends TestSetup {
     //todo first part of the network 3 nodes
     val biggerParams: NodeParams =
       standardParams.copy(miningDifficulty = 15, miningDifficultyDeviation = 1)
-    val (biggerNetwork, biggerKeys) =
-      generateNodes(nodesCount = 1, name = "bigger-net", system, biggerParams).unzip
+    val (biggerNetwork, _) =
+      generateNodes(nodesCount = 3, name = "bigger-net", system, biggerParams).unzip
     connectAll(biggerNetwork)
 
     //todo second part of the network 1 node
@@ -27,30 +27,20 @@ class BigFireWall extends TestSetup {
     Thread.sleep(5.seconds.toMillis)
 
     smallerNetwork.head ! GetState
-    val state1: State = expectMsgType[State]
-    val smallerNetCoins1: BigInt = state1.getLatestBalance(Address(smallerKeys.head._2)).getOrElse(0)
-    println(s"smaller network mined $smallerNetCoins1 coins")
-
-    biggerNetwork.head ! GetState
-    val state11: State = expectMsgType[State]
-    val biggerNetCoins1: BigInt = state11.getLatestBalance(Address(biggerKeys.head._2)).getOrElse(0)
-    println(s"bigger network mined $biggerNetCoins1 coins")
+    val stateBefore: State = expectMsgType[State]
+    val smallerNetCoinsBefore: BigInt = stateBefore.getLatestBalance(Address(smallerKeys.head._2)).getOrElse(0)
+    println(s"smaller network mined $smallerNetCoinsBefore coins")
 
     //todo reunion
     connectAll(biggerNetwork ++ smallerNetwork)
     Thread.sleep(2.seconds.toMillis)
 
     smallerNetwork.head ! GetState
-    val state2: State = expectMsgType[State]
-    val smallerNetCoins2: BigInt = state2.getLatestBalance(Address(smallerKeys.head._2)).getOrElse(0)
-    println(s"smaller network coins after reunion $smallerNetCoins2")
+    val stateAfter: State = expectMsgType[State]
+    val smallerNetCoinsAfter: BigInt = stateAfter.getLatestBalance(Address(smallerKeys.head._2)).getOrElse(0)
+    println(s"smaller network coins after reunion $smallerNetCoinsAfter")
 
-    biggerNetwork.head ! GetState
-    val state22: State = expectMsgType[State]
-    val biggerNetCoins2: BigInt = state22.getLatestBalance(Address(biggerKeys.head._2)).getOrElse(0)
-    println(s"bigger network mined $biggerNetCoins2 coins")
-
-    state2.chain.foreach { block =>
+    stateAfter.chain.foreach { block =>
       log.info(s"$block")
     }
 
