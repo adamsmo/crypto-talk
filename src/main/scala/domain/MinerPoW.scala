@@ -15,6 +15,7 @@ object MinerPoW {
    * @param difficulty number of leading bits that have to be zeros
    * @return mined PoW with appropriate nonce
    */
+  //todo 2.3 potentially infinite loop that looks for PoW solution
   @tailrec
   def mineBlock(
     hashForMining: ByteString,

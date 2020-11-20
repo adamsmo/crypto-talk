@@ -9,11 +9,12 @@ import domain.Address
 import presentation.{ Env, TestSetup }
 
 class NormalOperation extends TestSetup {
+  //todo since this is real life scenario this may fail, because miner will not have sufficient funds for transfer
   "Node" should "send founds from on wallet to another" in new Env {
     val params: NodeParams =
       standardParams.copy(miningDifficulty = 11, miningDifficultyDeviation = 10)
 
-    //prepare the network
+    //todo 4.1 prepare the network
     val (nodes, keys) =
       generateNodes(nodesCount = 5, name = "node", system, params).unzip
     connectAll(nodes)
@@ -23,28 +24,28 @@ class NormalOperation extends TestSetup {
     val minerWallet: ActorRef = system.actorOf(
       Wallet.props(nodePrivateKey, nodePublicKey, "Miner Wallet", node))
 
-    //empty wallet not owned by any miner
+    //todo 4.2 empty wallet not owned by any miner
     val emptyWallet: ActorRef =
       system.actorOf(Wallet.props(prv, pub, "Empty Wallet", node))
 
-    //wait for miner to mine few coins
+    //todo 4.3 wait for miner to mine few coins
     eventually {
       nodes.head ! GetState
       val state: State = expectMsgType[State]
       state.getLatestBalance(Address(nodePublicKey)).exists(_ > 4) shouldBe true
     }
 
-    //send coins from miner wallet
+    //todo 4.4 send coins from miner wallet
     minerWallet ! SendCoins(3, 1, Address(pub))
 
-    //check if transaction is recorded in a block
+    //todo 4.5 check if transaction is recorded in a block
     eventually {
       nodes.head ! GetState
       val state: State = expectMsgType[State]
       state.getLatestBalance(Address(pub)).contains(3) shouldBe true
     }
 
-    //check that funds are present on target wallet
+    //todo 4.6 check that funds are present on target wallet
     eventually {
       emptyWallet ! CheckBalance
       expectMsg(Balance(3))

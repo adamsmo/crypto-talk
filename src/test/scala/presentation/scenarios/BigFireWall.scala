@@ -12,17 +12,17 @@ class BigFireWall extends TestSetup {
     val params: NodeParams =
       standardParams.copy(miningDifficulty = 15, miningDifficultyDeviation = 1)
 
-    //todo first part of the network 3 nodes
+    //todo 5.1 first part of the network 3 nodes
     val (biggerNetwork, _) =
       generateNodes(nodesCount = 3, name = "bigger-net", system, params).unzip
     connectAll(biggerNetwork)
 
-    //todo second part of the network 1 node
+    //todo 5.2 second part of the network 1 node
 
     val (smallerNetwork, smallerKeys) =
       generateNodes(nodesCount = 1, name = "smaller-net", system, params).unzip
 
-    //todo let the networks mine in separation
+    //todo 5.3 let the networks mine in separation
     Thread.sleep(5.seconds.toMillis)
 
     smallerNetwork.head ! GetState
@@ -30,7 +30,7 @@ class BigFireWall extends TestSetup {
     val smallerNetCoinsBefore: BigInt = stateBefore.getLatestBalance(Address(smallerKeys.head._2)).getOrElse(0)
     log.info(s"smaller network mined $smallerNetCoinsBefore coins")
 
-    //todo reunion
+    //todo 5.4 reunion
     connectAll(biggerNetwork ++ smallerNetwork)
     Thread.sleep(2.seconds.toMillis)
 

@@ -62,12 +62,12 @@ object Logic {
     MinerPoW.isValidPoW(block) && diffValid && txLimit
   }
 
-  //block preparation
+  //todo 2.2.1 block preparation
   def prepareBlock(
     state: State,
     targetDifficulty: BigInt): Option[UnminedBlock] = {
     state match {
-      case State((parent, accounts) :: chain, txPool, Some(miner), _) =>
+      case State((parent, accounts) :: _, txPool, Some(miner), _) =>
         Some(
           UnminedBlock(
             blockNumber = parent.blockNumber + 1,
@@ -81,6 +81,7 @@ object Logic {
     }
   }
 
+  //todo 2.2.2 pick transactions
   private def selectTransactions(
     accounts: Map[Address, Account],
     txPool: List[SignedTransaction]): List[SignedTransaction] = {
@@ -119,14 +120,14 @@ object Logic {
         true
     }
 
-  //todo state of single node
+  //todo 3.1state of single node
   case class State(
       chain: List[(MinedBlock, Map[Address, Account])],
       txPool: List[SignedTransaction],
       minerAddress: Option[Address],
       nodes: List[ActorRef]) {
 
-    //todo how to do transaction rollback
+    //todo 3.2 how to do transaction rollback
     def rollBack(hash: ByteString): State = {
       val (blocksToDiscard, commonPrefix) = chain.span {
         case (block, _) => block.hash != hash

@@ -23,13 +23,14 @@ class Wallet(prv: PrvKey, pub: PubKey, name: String, node: ActorRef)
   private val address: Address = Address(pub)
 
   override def preStart(): Unit = {
-    //ticker to check balance every 3s to sync it with connected node state
+    //todo 1.2 ticker to check balance every 3s to sync it with connected node state
     context.system.scheduler.schedule(0.seconds, 3.second, self, UpdateBalance)
   }
 
   override def receive: Receive = receive(None)
 
   private def receive(balance: Option[BigInt]): Receive = {
+    //todo 1.1 sign and send tx to the node
     case SendCoins(amount, fee, recipient) =>
       //this should be call for specific account
       (node ? GetState).mapTo[State].onComplete {
@@ -43,6 +44,7 @@ class Wallet(prv: PrvKey, pub: PubKey, name: String, node: ActorRef)
           log.error("fail to send transaction")
       }
 
+    //todo 1.3 synchronize balance with node
     case UpdateBalance =>
       (node ? GetState).mapTo[State].foreach { state =>
         val newBalance = state.getLatestBalance(address)
@@ -54,6 +56,7 @@ class Wallet(prv: PrvKey, pub: PubKey, name: String, node: ActorRef)
         context.become(receive(newBalance))
       }
 
+    //todo 1.4 handle query for balance
     case CheckBalance =>
       sender() ! Balance(balance.getOrElse(0))
 

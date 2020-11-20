@@ -23,15 +23,18 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
     }
   }
 
-  override def receive: Receive =
+  override def receive: Receive = {
+    //todo 2.1 initial setup of every node
     standardOperation(
       State(
         chain = List((Node.genesisBlock, Map.empty)),
         txPool = List.empty,
         minerAddress = Some(nodeParams.miner),
         nodes = nodeParams.nodes))
+  }
 
   private def standardOperation(state: State): Receive = {
+    //todo 2.2 asynchronously mine new block
     case MineBlock =>
       Future {
         import nodeParams._
@@ -51,8 +54,10 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
         }
       }
 
+    //todo 2.4 got new valid block from other node
     case newBlock: MinedBlock if Logic.isValid(newBlock, state) =>
       Logic.getParent(newBlock, state) match {
+        //todo 2.4.1 next block, just accept
         case Some(parent) if state.latestBlock().contains(parent) =>
           Logic.executeBlock(newBlock, state) match {
             case Some(newState) =>
@@ -64,6 +69,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
               log.info(s"rejecting block $newBlock")
           }
 
+        //todo 2.4.2 next block that replaces latest block
         case Some(parent) if state
           .latestBlock()
           .exists(latest =>
@@ -78,6 +84,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
               log.info(s"rejecting block $newBlock")
           }
 
+        //todo 2.4.3 potential longer fork, try to resolve
         case None if state
           .latestBlock()
           .exists(_.totalDifficulty < newBlock.totalDifficulty) =>
@@ -86,6 +93,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
           //this should start timeout for case when sender goes down
           sender() ! GetBlock(newBlock.parentHash)
 
+        //todo 2.4.4 block to ignore, if invalid should update sender reputation
         case _ =>
           log.info(
             s"discarding block ${newBlock.blockNumber} from ${sender().path.name} TD <= latest block ${state.latestBlock().map(_.blockNumber)}")
@@ -99,6 +107,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
     case GetLatestBlock =>
       state.latestBlock().foreach { block => sender() ! block }
 
+    //todo 2.5 got new valid tx from other node
     case tx: SignedTransaction if tx.sender.nonEmpty && !state.txPool.contains(
       tx) && tx.amount > 0 && tx.txFee >= 0 =>
       context.become(
@@ -113,6 +122,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
           case (tx, blockNumber) => sender() ! TransactionInfo(tx, blockNumber)
         }
 
+    //todo 2.6 new node connected
     case ConnectNode(node) =>
       import state._
       //log.info(s"now connected to $node")
@@ -184,7 +194,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
 
   private def sendToOthers(msg: MinedBlock, nodes: List[ActorRef]): Unit =
     if (nodeParams.sendBlocks) {
-      //todo delay to simulate network lag
+      //todo 6.1 delay to simulate network lag
       akka.pattern.after(nodeParams.networkDelay, context.system.scheduler)(
         Future {
           nodes

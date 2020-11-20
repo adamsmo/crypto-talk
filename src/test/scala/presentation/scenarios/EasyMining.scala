@@ -8,6 +8,7 @@ import scala.concurrent.duration._
 
 class EasyMining extends TestSetup {
   "Node" should "diverge with slow network" in new Env {
+    //todo 6.2 slow network
     val params: NodeParams =
       standardParams.copy(
         miningDifficulty = 15,
@@ -20,7 +21,7 @@ class EasyMining extends TestSetup {
 
     Thread.sleep(5.seconds.toMillis)
 
-    network.foreach{ node =>
+    network.foreach { node =>
       log.info("\n\n")
       node ! GetState
       expectMsgType[State].getBlocks.foreach { block =>
@@ -30,6 +31,7 @@ class EasyMining extends TestSetup {
   }
 
   it should "diverge with fast network" in new Env {
+    //todo 6.3 fast network
     val params: NodeParams =
       standardParams.copy(
         miningDifficulty = 15,
@@ -42,7 +44,7 @@ class EasyMining extends TestSetup {
 
     Thread.sleep(5.seconds.toMillis)
 
-    network.foreach{ node =>
+    network.foreach { node =>
       log.info("\n\n")
       node ! GetState
       expectMsgType[State].getBlocks.foreach { block =>
