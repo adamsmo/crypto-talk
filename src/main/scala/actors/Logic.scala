@@ -125,7 +125,7 @@ object Logic {
       chain: List[(MinedBlock, Map[Address, Account])],
       txPool: List[SignedTransaction],
       minerAddress: Option[Address],
-      nodes: List[ActorRef]) {
+      nodes: List[akka.actor.Address]) {
 
     //todo 3.2 how to do transaction rollback
     def rollBack(hash: ByteString): State = {

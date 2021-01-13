@@ -2,13 +2,13 @@ package actors
 
 import actors.Logic.State
 import actors.Node._
-import akka.actor.{ Actor, ActorLogging, ActorRef, Props, Stash }
-import akka.util.{ ByteString, Timeout }
+import akka.actor.{Actor, ActorLogging, Props, RootActorPath, Stash}
+import akka.util.{ByteString, Timeout}
 import domain._
 import org.bouncycastle.util.encoders.Hex
 
 import scala.concurrent.duration._
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
 
 class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
@@ -30,7 +30,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
         chain = List((Node.genesisBlock, Map.empty)),
         txPool = List.empty,
         minerAddress = Some(nodeParams.miner),
-        nodes = nodeParams.nodes))
+        nodes = Nil))
   }
 
   private def standardOperation(state: State): Receive = {
@@ -49,7 +49,8 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
           self ! MinedBlock(b, pow, nonce)
           log.info(s"block number ${b.blockNumber} mined")
           if (nodeParams.isMining) {
-            self ! MineBlock
+            context.system.scheduler
+              .scheduleOnce(nodeParams.miningInterval, self, MineBlock)
           }
         }
       }
@@ -64,7 +65,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
               context.become(standardOperation(newState))
               sendToOthers(newBlock, state.nodes)
               log.info(
-                s"accepting block ${newBlock.blockNumber} from ${sender().path.name}")
+                s"accepting block ${newBlock.blockNumber} from ${sender().path.address} (${newBlock.miner})")
             case None =>
               log.info(s"rejecting block $newBlock")
           }
@@ -79,7 +80,7 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
               context.become(standardOperation(newState))
               sendToOthers(newBlock, state.nodes)
               log.info(
-                s"accepting block ${newBlock.blockNumber} from ${sender().path.name}")
+                s"accepting block ${newBlock.blockNumber} from ${sender().path.address} (${newBlock.miner})")
             case None =>
               log.info(s"rejecting block $newBlock")
           }
@@ -125,8 +126,17 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
     //todo 2.6 new node connected
     case ConnectNode(node) =>
       import state._
-      //log.info(s"now connected to $node")
-      context.become(standardOperation(state.copy(nodes = node :: nodes)))
+      log.info(s"now connected to $node")
+      if (!state.nodes.contains(node)) {
+        val newNodes = node :: nodes
+        context.become(standardOperation(state.copy(nodes = newNodes)))
+        log.info(newNodes.toString())
+      }
+    case DisconnectNode(node) =>
+      import state._
+      log.info(s"now disconnected from $node")
+      context.become(
+        standardOperation(state.copy(nodes = nodes.filterNot(_ == node))))
 
     case GetState =>
       sender() ! state
@@ -138,7 +148,10 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
         case Some(parent) if Logic.isValid(branch :+ newBlock) =>
           log.info("switching branch")
           context.become(
-            executingBranch(state, state.rollBack(parent.hash), (branch :+ newBlock).reverse))
+            executingBranch(
+              state,
+              state.rollBack(parent.hash),
+              (branch :+ newBlock).reverse))
           self ! ExecuteBranch
 
         case None if Logic.isValid(branch :+ newBlock) && newBlock.blockNumber > 0 =>
@@ -192,24 +205,28 @@ class Node(nodeParams: NodeParams) extends Actor with ActorLogging with Stash {
       stash()
   }
 
-  private def sendToOthers(msg: MinedBlock, nodes: List[ActorRef]): Unit =
+  private def sendToOthers(
+    msg: MinedBlock,
+    nodes: List[akka.actor.Address]): Unit =
     if (nodeParams.sendBlocks) {
       //todo 6.1 delay to simulate network lag
       akka.pattern.after(nodeParams.networkDelay, context.system.scheduler)(
         Future {
-          nodes
-            .filter(node => node != self || node != sender())
-            .foreach(node => node ! msg)
+          nodes.foreach { addr =>
+            log.info(s"Sending to $addr")
+            context.actorSelection(
+              RootActorPath(addr) / "user" / "supervisor" / "node") ! msg
+          }
         })
     }
 
   private def sendToOthers(
     msg: SignedTransaction,
-    nodes: List[ActorRef]): Unit =
+    nodes: List[akka.actor.Address]): Unit =
     if (nodeParams.sendTransactions) {
-      nodes
-        .filter(node => node != self || node != sender())
-        .foreach(node => node ! msg)
+      nodes.foreach(addr =>
+        context.actorSelection(
+          RootActorPath(addr) / "user" / "supervisor" / "node") ! msg)
     }
 
 }
@@ -234,7 +251,8 @@ case object Node {
 
   case class TransactionInfo(tx: SignedTransaction, blockNumber: BigInt)
 
-  case class ConnectNode(node: ActorRef)
+  case class ConnectNode(address: akka.actor.Address)
+  case class DisconnectNode(address: akka.actor.Address)
 
   case class NodeParams(
       sendBlocks: Boolean,
@@ -244,7 +262,6 @@ case object Node {
       miningInterval: FiniteDuration,
       miningDifficulty: BigInt,
       miningDifficultyDeviation: BigInt,
-      nodes: List[ActorRef],
       networkDelay: FiniteDuration = 0.seconds)
 
   case object MineBlock
